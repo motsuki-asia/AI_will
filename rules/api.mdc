@@ -1,0 +1,614 @@
+---
+description: AI will プロジェクトの REST API 設計規約。全 API 実装時に適用する
+alwaysApply: true
+---
+
+# AI will API 設計規約
+
+このドキュメントは AI will プロジェクトにおける REST API の設計・実装規約を定義します。
+新規 API の追加・既存 API の変更時は必ずこの規約に従ってください。
+
+---
+
+## 1. 基本方針
+
+### 1.1 バージョニング
+
+| 項目 | 規約 |
+|------|------|
+| プレフィックス | すべてのエンドポイントは `/v1` から始める |
+| 例 | `/v1/auth/login`, `/v1/packs`, `/v1/threads` |
+| バージョン変更 | 破壊的変更時は `/v2` を新設（v1 は一定期間並行稼働） |
+
+### 1.2 リソース設計
+
+| 項目 | 規約 |
+|------|------|
+| URL 命名 | 複数形のリソース名（`/users`, `/packs`, `/threads`） |
+| 単一リソース | `/{resource}/{id}` 形式 |
+| ネスト | 2階層まで（`/threads/{id}/messages`）。3階層以上は避ける |
+| アクション | 名詞ベース推奨。動詞が必要な場合はコロン記法（`:stream`, `:restore`） |
+
+### 1.3 HTTP メソッド
+
+| メソッド | 用途 | 例 |
+|----------|------|-----|
+| GET | 参照（冪等） | `GET /v1/packs/{id}` |
+| POST | 作成・アクション | `POST /v1/threads`, `POST /v1/purchases:restore` |
+| PATCH | 部分更新 | `PATCH /v1/clips/{id}` |
+| PUT | 全置換（使用は限定的） | — |
+| DELETE | 削除（論理削除） | `DELETE /v1/clips/{id}` |
+
+### 1.4 JSON 命名規則
+
+| 項目 | 規約 | 例 |
+|------|------|-----|
+| プロパティ名 | **snake_case** | `user_id`, `created_at`, `pack_type` |
+| ID 形式 | **UUID (v4)** または **ULID**（プロジェクト内で統一） | `"id": "550e8400-e29b-41d4-a716-446655440000"` |
+| 日時形式 | **ISO 8601 (UTC)** | `"created_at": "2026-01-31T12:00:00Z"` |
+| null | 値がない場合は `null`。プロパティ省略は不可 | `"deleted_at": null` |
+| boolean | `true` / `false`（文字列禁止） | `"is_active": true` |
+
+---
+
+## 2. 認証・認可
+
+### 2.1 認証方式
+
+| 項目 | 規約 |
+|------|------|
+| 方式 | **JWT (Bearer Token)** |
+| ヘッダー | `Authorization: Bearer {access_token}` |
+| トークン有効期限 | アクセストークン: 15分〜1時間、リフレッシュトークン: 7〜30日 |
+| トークン更新 | `POST /v1/auth/refresh` |
+
+### 2.2 認証エンドポイント
+
+```
+POST /v1/auth/register     # 新規登録
+POST /v1/auth/login        # ログイン
+POST /v1/auth/refresh      # トークン更新
+POST /v1/auth/logout       # ログアウト（リフレッシュトークン無効化）
+GET  /v1/me                # 認証ユーザー情報取得
+POST /v1/me/age-verify     # 年齢確認/制限確定
+```
+
+### 2.3 権限制御
+
+| 権限タイプ | 説明 | チェック方法 |
+|-----------|------|-------------|
+| 認証必須 | ログイン済みユーザーのみ | JWT 検証 |
+| 年齢制限 | 年齢区分に応じたコンテンツ制限 | `user.age_group` 確認 |
+| 購入済み | 利用権（entitlement）保持者のみ | `user_entitlements` 確認 |
+| オンボーディング完了 | 同意＋年齢確認完了 | `user.consent_at`, `user.age_verified_at` |
+| 所有者 | リソース作成者のみ | `resource.user_id == current_user.id` |
+
+### 2.4 権限エラー
+
+| 状況 | ステータス | エラーコード |
+|------|-----------|-------------|
+| 未認証 | 401 | `unauthenticated` |
+| 権限不足（年齢/購入等） | 403 | `forbidden` |
+| 年齢制限違反 | 403 | `age_restricted` |
+| 購入必須 | 403 | `entitlement_required` |
+
+---
+
+## 3. エラーレスポンス
+
+### 3.1 統一フォーマット
+
+すべてのエラーレスポンスは以下の形式で返却する:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "リクエストの検証に失敗しました",
+    "details": [
+      {
+        "field": "email",
+        "code": "invalid_format",
+        "message": "有効なメールアドレス形式で入力してください"
+      }
+    ]
+  }
+}
+```
+
+### 3.2 エラーコード一覧
+
+| HTTP ステータス | code | 説明 |
+|----------------|------|------|
+| 400 | `validation_error` | リクエストパラメータ不正 |
+| 400 | `invalid_request` | リクエスト形式不正 |
+| 401 | `unauthenticated` | 認証が必要 |
+| 401 | `token_expired` | トークン期限切れ |
+| 403 | `forbidden` | 権限不足 |
+| 403 | `age_restricted` | 年齢制限 |
+| 403 | `entitlement_required` | 購入が必要 |
+| 404 | `not_found` | リソースが存在しない |
+| 409 | `conflict` | 競合（重複等） |
+| 409 | `already_purchased` | 購入済み |
+| 422 | `unprocessable_entity` | ビジネスロジックエラー |
+| 429 | `rate_limit_exceeded` | レート制限超過 |
+| 500 | `internal_error` | サーバー内部エラー |
+| 503 | `service_unavailable` | サービス一時停止 |
+
+---
+
+## 4. ページング・フィルタ・ソート
+
+### 4.1 ページング（Cursor 方式）
+
+| パラメータ | 型 | 説明 | デフォルト |
+|-----------|-----|------|-----------|
+| `cursor` | string | 次ページのカーソル（opaque token） | — |
+| `limit` | integer | 取得件数（1〜100） | 20 |
+
+**レスポンス形式:**
+
+```json
+{
+  "data": [...],
+  "pagination": {
+    "next_cursor": "eyJpZCI6IjEyMzQ1In0",
+    "has_more": true
+  }
+}
+```
+
+### 4.2 フィルタ
+
+| 方式 | 例 |
+|------|-----|
+| クエリパラメータ | `GET /v1/packs?type=persona&tags=romance,fantasy` |
+| 複数値 | カンマ区切り: `tags=a,b,c` |
+| 範囲指定 | `price_min=100&price_max=1000` |
+
+### 4.3 ソート
+
+| パラメータ | 説明 | 例 |
+|-----------|------|-----|
+| `sort` | ソートキー | `sort=created_at` |
+| `order` | 昇順/降順 | `order=desc` |
+| デフォルト | `created_at desc`（新しい順） | — |
+
+**複数ソート:**
+```
+GET /v1/packs?sort=popularity,created_at&order=desc,desc
+```
+
+---
+
+## 5. 冪等性（Idempotency）
+
+### 5.1 対象操作
+
+以下の操作では **Idempotency-Key ヘッダー必須**:
+
+| 操作 | エンドポイント |
+|------|---------------|
+| 購入 | `POST /v1/purchases` |
+| 購入復元 | `POST /v1/purchases:restore` |
+| チケット購入 | `POST /v1/tickets/purchase` |
+| 非同期ジョブ作成 | `POST /v1/images`, `POST /v1/privacy/export` 等 |
+
+### 5.2 実装仕様
+
+```
+POST /v1/purchases
+Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Content-Type: application/json
+```
+
+| 項目 | 規約 |
+|------|------|
+| ヘッダー名 | `Idempotency-Key` |
+| 値 | クライアント生成の UUID |
+| 有効期限 | 24時間（サーバー側でキャッシュ） |
+| 重複リクエスト | 同一キーで同一レスポンスを返却（再処理しない） |
+| キー未指定時 | `400 Bad Request` (`idempotency_key_required`) |
+
+### 5.3 レスポンス
+
+| 状況 | 動作 |
+|------|------|
+| 初回リクエスト | 通常処理、結果をキャッシュ |
+| 重複リクエスト（処理中） | `409 Conflict` (`request_in_progress`) |
+| 重複リクエスト（完了済み） | キャッシュされたレスポンスを返却 |
+| キー期限切れ後 | 新規リクエストとして処理 |
+
+---
+
+## 6. 非同期ジョブ
+
+### 6.1 標準パターン
+
+処理時間が長い操作（画像生成、データエクスポート等）は非同期ジョブで処理:
+
+```
+1. POST /v1/{resource} → 202 Accepted + job_id
+2. GET /v1/{resource}/jobs/{job_id} → ステータス確認
+3. ステータスが succeeded → 結果取得
+```
+
+### 6.2 ジョブ作成リクエスト
+
+```
+POST /v1/images
+Idempotency-Key: {uuid}
+Content-Type: application/json
+
+{
+  "prompt": "...",
+  "style": "anime"
+}
+```
+
+### 6.3 ジョブ作成レスポンス
+
+```json
+{
+  "job_id": "job_550e8400-e29b-41d4-a716-446655440000",
+  "status": "queued",
+  "created_at": "2026-01-31T12:00:00Z"
+}
+```
+
+**HTTP ステータス: `202 Accepted`**
+
+### 6.4 ジョブステータス確認
+
+```
+GET /v1/images/jobs/{job_id}
+```
+
+```json
+{
+  "job_id": "job_550e8400-e29b-41d4-a716-446655440000",
+  "status": "succeeded",
+  "created_at": "2026-01-31T12:00:00Z",
+  "completed_at": "2026-01-31T12:01:30Z",
+  "result": {
+    "url": "https://cdn.example.com/images/...",
+    "expires_at": "2026-02-01T12:00:00Z"
+  }
+}
+```
+
+### 6.5 ジョブステータス一覧
+
+| status | 説明 |
+|--------|------|
+| `queued` | キュー待ち |
+| `running` | 処理中 |
+| `succeeded` | 成功（result に結果） |
+| `failed` | 失敗（error に詳細） |
+
+### 6.6 対象エンドポイント
+
+| 操作 | エンドポイント |
+|------|---------------|
+| 画像生成 | `POST /v1/images` |
+| 音声生成 | `POST /v1/audio/speech` |
+| データエクスポート | `POST /v1/privacy/export` |
+| データ削除 | `POST /v1/privacy/delete` |
+
+---
+
+## 7. 会話 API（ストリーミング）
+
+### 7.1 エンドポイント
+
+```
+POST /v1/threads                              # 会話スレッド作成
+GET  /v1/threads                              # スレッド一覧
+GET  /v1/threads/{thread_id}                  # スレッド詳細
+POST /v1/threads/{thread_id}/messages         # メッセージ送信（通常）
+POST /v1/threads/{thread_id}/messages:stream  # メッセージ送信（SSE ストリーミング）
+```
+
+### 7.2 通常メッセージ送信
+
+```
+POST /v1/threads/{thread_id}/messages
+Content-Type: application/json
+
+{
+  "content": "こんにちは",
+  "content_type": "text"
+}
+```
+
+**レスポンス:**
+
+```json
+{
+  "message": {
+    "id": "msg_...",
+    "role": "assistant",
+    "content": "こんにちは！今日はどんなお話をしましょうか？",
+    "created_at": "2026-01-31T12:00:00Z"
+  }
+}
+```
+
+### 7.3 SSE ストリーミング
+
+```
+POST /v1/threads/{thread_id}/messages:stream
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "content": "こんにちは",
+  "content_type": "text"
+}
+```
+
+**レスポンス（SSE イベント）:**
+
+```
+event: message_start
+data: {"message_id": "msg_..."}
+
+event: content_delta
+data: {"delta": "こんにちは"}
+
+event: content_delta
+data: {"delta": "！今日は"}
+
+event: content_delta
+data: {"delta": "どんなお話をしましょうか？"}
+
+event: message_end
+data: {"message_id": "msg_...", "finish_reason": "stop"}
+```
+
+### 7.4 SSE イベント種別
+
+| イベント | 説明 |
+|----------|------|
+| `message_start` | メッセージ開始（message_id 発行） |
+| `content_delta` | テキスト差分 |
+| `audio_delta` | 音声データ差分（Base64） |
+| `message_end` | メッセージ完了 |
+| `error` | エラー発生 |
+
+### 7.5 音声モード
+
+```json
+{
+  "content": "（音声データ Base64）",
+  "content_type": "audio",
+  "audio_format": "wav",
+  "response_format": "audio"
+}
+```
+
+---
+
+## 8. 外部連携（プロバイダー抽象化）
+
+### 8.1 設計方針
+
+| 方針 | 説明 |
+|------|------|
+| プロバイダー隠蔽 | 外部 API（TTS/画像/LLM）はアプリ API で抽象化 |
+| 差し替え可能 | 設定変更でプロバイダー変更可能（フロント影響なし） |
+| フォールバック | メインプロバイダー障害時は代替に切り替え |
+
+### 8.2 内部インターフェース
+
+```python
+# 例: TTS プロバイダーインターフェース
+class TTSProvider(Protocol):
+    async def synthesize(
+        self,
+        text: str,
+        voice_id: str,
+        options: TTSOptions
+    ) -> AsyncIterator[bytes]:
+        ...
+
+# 設定による切り替え
+TTS_PROVIDERS = {
+    "aivis": AivisTTSProvider,
+    "openai": OpenAITTSProvider,
+    "elevenlabs": ElevenLabsTTSProvider,
+}
+```
+
+### 8.3 対象サービス
+
+| 機能 | 内部 API | プロバイダー候補 |
+|------|----------|------------------|
+| 音声合成（TTS） | `POST /v1/audio/speech` | Aivis, OpenAI TTS, ElevenLabs |
+| 音声認識（STT） | `POST /v1/audio/transcriptions` | OpenAI Whisper, Google STT, Deepgram |
+| 画像生成 | `POST /v1/images` | Stability AI, OpenAI DALL-E, Midjourney |
+| 会話生成（LLM） | `/v1/threads/*/messages` | OpenAI GPT, Anthropic Claude, Google Gemini |
+
+### 8.4 エラーハンドリング
+
+| 状況 | 対応 |
+|------|------|
+| タイムアウト | リトライ（exponential backoff） |
+| レート制限 | キュー制御、429 返却 |
+| プロバイダー障害 | フォールバック切り替え |
+| 課金超過 | アラート、503 返却 |
+
+---
+
+## 9. レート制限
+
+### 9.1 制限値
+
+| 対象 | 制限 |
+|------|------|
+| 認証 API | 10 req/min/IP |
+| 一般 API | 100 req/min/user |
+| 会話 API | 30 req/min/user |
+| 非同期ジョブ | 10 req/min/user |
+
+### 9.2 レスポンスヘッダー
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1706702400
+```
+
+### 9.3 制限超過時
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+
+{
+  "error": {
+    "code": "rate_limit_exceeded",
+    "message": "リクエスト制限を超過しました。60秒後に再試行してください。"
+  }
+}
+```
+
+---
+
+## 10. API 追加・変更手順
+
+### 10.1 標準フロー
+
+```
+1. OpenAPI 定義を追加/更新（docs/api/openapi.yaml）
+2. スキーマレビュー
+3. 実装
+4. ユニットテスト
+5. 統合テスト
+6. API ドキュメント更新
+```
+
+### 10.2 OpenAPI 先行
+
+| ルール | 説明 |
+|--------|------|
+| スキーマ先行 | 実装前に OpenAPI で API 定義 |
+| 自動生成 | スキーマから型定義・バリデータを生成 |
+| ドキュメント同期 | OpenAPI = API ドキュメント（乖離させない） |
+
+### 10.3 破壊的変更
+
+| 種別 | 対応 |
+|------|------|
+| フィールド追加 | 後方互換（既存クライアント影響なし） |
+| フィールド削除 | deprecated 期間後に削除 |
+| レスポンス形式変更 | v2 として新設 |
+| エンドポイント廃止 | deprecated 期間（最低30日）後に削除 |
+
+### 10.4 Deprecated 表記
+
+```json
+{
+  "data": [...],
+  "meta": {
+    "deprecated": true,
+    "sunset": "2026-06-01",
+    "alternative": "/v2/packs"
+  }
+}
+```
+
+---
+
+## 11. MVP エンドポイント一覧
+
+### 11.1 Auth / User
+
+| Method | Path | 説明 |
+|--------|------|------|
+| POST | `/v1/auth/register` | ユーザー登録 |
+| POST | `/v1/auth/login` | ログイン |
+| POST | `/v1/auth/refresh` | トークン更新 |
+| POST | `/v1/auth/logout` | ログアウト |
+| GET | `/v1/me` | 自分の情報取得 |
+| POST | `/v1/me/age-verify` | 年齢確認 |
+| PATCH | `/v1/me` | プロフィール更新 |
+
+### 11.2 Catalog（Pack 検索・閲覧）
+
+| Method | Path | 説明 |
+|--------|------|------|
+| GET | `/v1/packs` | Pack 一覧（検索・フィルタ） |
+| GET | `/v1/packs/{pack_id}` | Pack 詳細 |
+| GET | `/v1/packs/{pack_id}/items` | Pack 構成アイテム |
+| GET | `/v1/tags` | タグ一覧 |
+
+### 11.3 Purchase（購入・復元）
+
+| Method | Path | 説明 | 冪等性 |
+|--------|------|------|--------|
+| POST | `/v1/purchases` | 購入 | **必須** |
+| POST | `/v1/purchases:restore` | 購入復元 | **必須** |
+| GET | `/v1/entitlements` | 利用権一覧 | — |
+
+### 11.4 Conversation（会話）
+
+| Method | Path | 説明 |
+|--------|------|------|
+| POST | `/v1/threads` | スレッド作成 |
+| GET | `/v1/threads` | スレッド一覧 |
+| GET | `/v1/threads/{thread_id}` | スレッド詳細 |
+| POST | `/v1/threads/{thread_id}/messages` | メッセージ送信 |
+| POST | `/v1/threads/{thread_id}/messages:stream` | メッセージ送信（SSE） |
+
+### 11.5 Memory（切り抜き）
+
+| Method | Path | 説明 |
+|--------|------|------|
+| POST | `/v1/clips` | クリップ作成 |
+| GET | `/v1/clips` | クリップ一覧 |
+| GET | `/v1/clips/{clip_id}` | クリップ詳細 |
+| DELETE | `/v1/clips/{clip_id}` | クリップ削除 |
+
+> **Note**: クリップは作成後の編集不可（memory_clips テーブルは updated_at を持たない設計）
+
+### 11.6 Safety（通報・ブロック）
+
+| Method | Path | 説明 |
+|--------|------|------|
+| POST | `/v1/reports` | 通報 |
+| POST | `/v1/blocks` | ブロック |
+| GET | `/v1/blocks` | ブロック一覧 |
+| DELETE | `/v1/blocks/{block_id}` | ブロック解除 |
+
+### 11.7 Privacy（削除・エクスポート）
+
+| Method | Path | 説明 | 冪等性 |
+|--------|------|------|--------|
+| POST | `/v1/privacy/export` | エクスポートジョブ | **必須** |
+| GET | `/v1/privacy/export/{job_id}` | エクスポート状態 | — |
+| POST | `/v1/privacy/delete` | 削除ジョブ | **必須** |
+| GET | `/v1/privacy/delete/{job_id}` | 削除状態 | — |
+
+### 11.8 Audio（音声）
+
+| Method | Path | 説明 |
+|--------|------|------|
+| POST | `/v1/audio/transcriptions` | 音声→テキスト（STT） |
+| POST | `/v1/audio/speech` | テキスト→音声（TTS） |
+
+### 11.9 Images（画像生成）
+
+| Method | Path | 説明 | 冪等性 |
+|--------|------|------|--------|
+| POST | `/v1/images` | 画像生成ジョブ | **必須** |
+| GET | `/v1/images/jobs/{job_id}` | 生成状態確認 | — |
+
+---
+
+## 改訂履歴
+
+| バージョン | 日付 | 変更内容 |
+|------------|------|----------|
+| 1.0.0 | 2026-01-31 | 初版作成 |
+| 1.0.1 | 2026-01-31 | Clip 更新 API を削除（編集不可の設計判断） |

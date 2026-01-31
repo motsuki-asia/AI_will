@@ -1,0 +1,2542 @@
+openapi: 3.1.0
+info:
+  title: AI will API
+  description: |
+    AI will - AI音声会話アプリのREST API仕様書
+
+    ## 認証
+    JWT Bearer Tokenを使用します。
+    ```
+    Authorization: Bearer {access_token}
+    ```
+
+    ## エラーレスポンス
+    すべてのエラーは統一フォーマットで返却されます。
+    ```json
+    {
+      "error": {
+        "code": "error_code",
+        "message": "エラーメッセージ",
+        "details": []
+      }
+    }
+    ```
+
+    ## ページング
+    Cursor方式を採用。`cursor`と`limit`パラメータを使用。
+    ```json
+    {
+      "data": [...],
+      "pagination": {
+        "next_cursor": "eyJpZCI6...",
+        "has_more": true
+      }
+    }
+    ```
+
+    ## 冪等性（Idempotency）
+    購入系・ジョブ作成系APIでは`Idempotency-Key`ヘッダーが必須です。
+    - キー: クライアント生成のUUID
+    - 有効期限: 24時間
+    - 同一キーで再リクエスト時は同一レスポンスを返却
+
+    ## ストリーミング（SSE）
+    会話APIでは Server-Sent Events によるストリーミングをサポートします。
+    - エンドポイント: `POST /threads/{id}/messages:stream`
+    - イベント: `message_start`, `content_delta`, `message_done`, `error`
+
+    ## 主要なユースケース例
+    - **Example 1**: 会話メッセージ送信（`POST /threads/{id}/messages`）
+    - **Example 2**: 購入反映・Idempotency-Key付き（`POST /purchases`）
+    - **Example 3**: クリップ作成（`POST /clips`）
+  version: 1.3.0
+  contact:
+    name: AI will Support
+    email: support@aiwill.app
+  license:
+    name: Proprietary
+    url: https://aiwill.app/terms
+
+servers:
+  - url: https://api.aiwill.app/v1
+    description: Production
+  - url: https://api.staging.aiwill.app/v1
+    description: Staging
+
+tags:
+  - name: Auth
+    description: 認証・ユーザー管理
+  - name: Catalog
+    description: Pack検索・閲覧
+  - name: Conversation
+    description: 会話機能
+  - name: Purchase
+    description: 購入・復元
+  - name: Memory
+    description: メモリー（切り抜き）
+  - name: Safety
+    description: 通報・ブロック
+  - name: Privacy
+    description: プライバシー設定
+
+# ============================================================
+# Paths
+# ============================================================
+paths:
+  # ----------------------------------------------------------
+  # Auth
+  # ----------------------------------------------------------
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: ユーザー登録
+      description: メールアドレスとパスワードで新規ユーザーを登録します。
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: user@example.com
+              password: SecureP@ss123
+      responses:
+        '201':
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: ログイン
+      description: メールアドレスとパスワードでログインします。
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: user@example.com
+              password: SecureP@ss123
+      responses:
+        '200':
+          description: ログイン成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: 認証失敗
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: invalid_credentials
+                  message: メールアドレスまたはパスワードが正しくありません
+                  details: []
+        '423':
+          description: アカウントロック
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: トークン更新
+      description: リフレッシュトークンを使用してアクセストークンを更新します。
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: トークン無効
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: ログアウト
+      description: リフレッシュトークンを無効化してログアウトします。
+      operationId: logout
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: ログアウト成功
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: ユーザー情報取得
+      description: 認証ユーザーの情報とオンボーディング状態を取得します。
+      operationId: getMe
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    patch:
+      tags: [Auth]
+      summary: プロフィール更新
+      description: ユーザーのプロフィール情報を更新します。
+      operationId: updateMe
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /me/consent:
+    post:
+      tags: [Auth]
+      summary: 利用規約同意
+      description: 利用規約とプライバシーポリシーへの同意を記録します。
+      operationId: consent
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentRequest'
+      responses:
+        '200':
+          description: 同意完了
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /me/age-verify:
+    post:
+      tags: [Auth]
+      summary: 年齢確認
+      description: ユーザーの年齢を確認し、適切な制限を設定します。
+      operationId: ageVerify
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgeVerifyRequest'
+      responses:
+        '200':
+          description: 年齢確認完了
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgeVerifyResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          description: 同意未完了
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  # ----------------------------------------------------------
+  # Catalog
+  # ----------------------------------------------------------
+  /packs:
+    get:
+      tags: [Catalog]
+      summary: Pack一覧取得
+      description: Persona/Scenario Packの一覧を取得します。フィルタ・ソート・ページング対応。
+      operationId: listPacks
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [persona, scenario]
+          description: Pack種別
+        - name: query
+          in: query
+          schema:
+            type: string
+          description: キーワード検索
+        - name: tags
+          in: query
+          schema:
+            type: string
+          description: タグ絞り込み（カンマ区切り）
+        - name: age_rating
+          in: query
+          schema:
+            type: string
+            enum: [all, r15, r18]
+          description: |
+            年齢レーティングフィルタ。
+            ユーザーの age_group に応じて閲覧可能な Pack が自動フィルタされる:
+            - u13: all のみ
+            - u18: all, r15
+            - adult: すべて
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/order'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PackListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /packs/{pack_id}:
+    get:
+      tags: [Catalog]
+      summary: Pack詳細取得
+      description: 指定したPackの詳細情報を取得します。
+      operationId: getPack
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/packId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PackDetailResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/AgeRestrictedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /packs/{pack_id}/items:
+    get:
+      tags: [Catalog]
+      summary: Pack構成アイテム取得
+      description: Packに含まれるキャラクター、イベント等の構成アイテムを取得します。
+      operationId: getPackItems
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/packId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PackItemsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /tags:
+    get:
+      tags: [Catalog]
+      summary: タグ一覧取得
+      description: 利用可能なタグの一覧を取得します。
+      operationId: listTags
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [pack, character]
+          description: タグ種別
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ----------------------------------------------------------
+  # Conversation
+  # ----------------------------------------------------------
+  /threads:
+    get:
+      tags: [Conversation]
+      summary: スレッド一覧取得
+      description: ユーザーの会話スレッド一覧を取得します。
+      operationId: listThreads
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: character_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: キャラクター絞り込み
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/order'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      tags: [Conversation]
+      summary: スレッド作成
+      description: 新しい会話スレッドを作成します。
+      operationId: createThread
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateThreadRequest'
+      responses:
+        '201':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/EntitlementRequiredError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    # NOTE: DELETE /threads（一括削除）は MVP から削除。
+    # 理由: Privacy Job（POST /privacy/delete）で会話履歴の一括削除に対応可能。
+    # 個別削除は DELETE /threads/{thread_id} で対応。
+
+  /threads/{thread_id}:
+    get:
+      tags: [Conversation]
+      summary: スレッド詳細取得
+      description: 指定したスレッドの詳細情報を取得します。
+      operationId: getThread
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/threadId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadDetailResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    delete:
+      tags: [Conversation]
+      summary: スレッド削除
+      description: 指定したスレッドを削除します。
+      operationId: deleteThread
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/threadId'
+      responses:
+        '204':
+          description: 削除成功
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /threads/{thread_id}/messages:
+    get:
+      tags: [Conversation]
+      summary: メッセージ履歴取得
+      description: スレッドのメッセージ履歴を取得します。
+      operationId: listMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/threadId'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/order'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    post:
+      tags: [Conversation]
+      summary: メッセージ送信
+      description: スレッドにメッセージを送信し、AIの応答を取得します。
+      operationId: sendMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/threadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            examples:
+              text_greeting:
+                summary: 挨拶メッセージ
+                description: キャラクターへの日常的な挨拶
+                value:
+                  content: こんにちは！今日はいい天気だね
+                  content_type: text
+              text_question:
+                summary: 質問メッセージ
+                description: キャラクターへの質問
+                value:
+                  content: 今度の休み、どこか行きたいところある？
+                  content_type: text
+              text_emotional:
+                summary: 感情を伝えるメッセージ
+                description: キャラクターへの感情表現
+                value:
+                  content: 今日は君に会えて嬉しいな
+                  content_type: text
+      responses:
+        '201':
+          description: メッセージ作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+              examples:
+                conversation_greeting:
+                  summary: 挨拶への応答例
+                  description: |
+                    **Example 1: 会話メッセージ送信**
+
+                    ユーザーが「こんにちは！今日はいい天気だね」と送信した場合の応答例。
+                    キャラクターが自然な会話で返答します。
+                  value:
+                    user_message:
+                      id: msg_550e8400-e29b-41d4-a716-446655440001
+                      role: user
+                      content: こんにちは！今日はいい天気だね
+                      content_type: text
+                      created_at: '2026-01-31T12:00:00Z'
+                    assistant_message:
+                      id: msg_550e8400-e29b-41d4-a716-446655440002
+                      role: character
+                      content: うん！こんな日はお散歩に行きたくなるね。一緒に行く？
+                      content_type: text
+                      created_at: '2026-01-31T12:00:02Z'
+                conversation_question:
+                  summary: 質問への応答例
+                  value:
+                    user_message:
+                      id: msg_550e8400-e29b-41d4-a716-446655440003
+                      role: user
+                      content: 今度の休み、どこか行きたいところある？
+                      content_type: text
+                      created_at: '2026-01-31T14:00:00Z'
+                    assistant_message:
+                      id: msg_550e8400-e29b-41d4-a716-446655440004
+                      role: character
+                      content: えっと…水族館とか行ってみたいな！イルカのショー見たことある？
+                      content_type: text
+                      created_at: '2026-01-31T14:00:03Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '408':
+          description: タイムアウト
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /threads/{thread_id}/messages:stream:
+    post:
+      tags: [Conversation]
+      summary: メッセージ送信（SSEストリーミング）
+      description: |
+        スレッドにメッセージを送信し、AIの応答をSSE（Server-Sent Events）でストリーミング取得します。
+
+        ## SSEイベント形式
+
+        各イベントは以下の形式で送信されます:
+        ```
+        event: {event_type}
+        data: {json_payload}
+        ```
+
+        ### イベント種別
+
+        | event | data | 説明 |
+        |-------|------|------|
+        | `message_start` | `SSEMessageStart` | ストリーム開始。メッセージIDを発行 |
+        | `content_delta` | `SSEContentDelta` | テキスト差分。逐次送信 |
+        | `audio_delta` | `SSEAudioDelta` | 音声データ差分（Base64） |
+        | `message_done` | `SSEMessageDone` | ストリーム正常完了 |
+        | `error` | `SSEError` | エラー発生。ストリーム終了 |
+
+        ### 接続管理
+        - クライアントは `Accept: text/event-stream` ヘッダーを送信
+        - サーバーは `Content-Type: text/event-stream` で応答
+        - 接続は `message_done` または `error` イベントで終了
+      operationId: sendMessageStream
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/threadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            examples:
+              text_stream:
+                summary: テキストメッセージ（ストリーミング）
+                value:
+                  content: こんにちは！今日は何して遊ぶ？
+                  content_type: text
+      responses:
+        '200':
+          description: SSEストリーム
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/SSEStream'
+              examples:
+                full_conversation:
+                  summary: 完全な会話ストリーム例
+                  value: |
+                    event: message_start
+                    data: {"user_message_id":"msg_550e8400-e29b-41d4-a716-446655440001","assistant_message_id":"msg_550e8400-e29b-41d4-a716-446655440002"}
+
+                    event: content_delta
+                    data: {"delta":"うん！"}
+
+                    event: content_delta
+                    data: {"delta":"今日は"}
+
+                    event: content_delta
+                    data: {"delta":"公園に行って"}
+
+                    event: content_delta
+                    data: {"delta":"ピクニックしよう！"}
+
+                    event: message_done
+                    data: {"assistant_message_id":"msg_550e8400-e29b-41d4-a716-446655440002","finish_reason":"stop","usage":{"prompt_tokens":150,"completion_tokens":25}}
+                error_case:
+                  summary: エラー発生例
+                  value: |
+                    event: message_start
+                    data: {"user_message_id":"msg_001","assistant_message_id":"msg_002"}
+
+                    event: content_delta
+                    data: {"delta":"えっと"}
+
+                    event: error
+                    data: {"code":"request_timeout","message":"応答がタイムアウトしました。再度お試しください。"}
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  # ----------------------------------------------------------
+  # Purchase
+  # ----------------------------------------------------------
+  /purchases:
+    post:
+      tags: [Purchase]
+      summary: 購入
+      description: |
+        Packを購入します。
+
+        ## 冪等性
+
+        `Idempotency-Key` ヘッダーが**必須**です。
+
+        ```http
+        POST /v1/purchases
+        Authorization: Bearer {access_token}
+        Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+        Content-Type: application/json
+        ```
+
+        ### 冪等性キーの動作
+        - 同一キーで24時間以内に再リクエストした場合、同一レスポンスを返却
+        - キー未指定時は `400 Bad Request` (`idempotency_key_required`)
+        - 処理中に再リクエストした場合は `409 Conflict` (`request_in_progress`)
+
+        ## 決済フロー
+        1. クライアントが決済プロバイダー（Stripe/Apple/Google）で決済を完了
+        2. 決済プロバイダーからレシートを取得
+        3. 本APIにレシートを送信してサーバー側で検証
+        4. 検証成功で利用権（Entitlement）を付与
+      operationId: createPurchase
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePurchaseRequest'
+            examples:
+              stripe_purchase:
+                summary: Stripe決済での購入
+                description: |
+                  **Example 2: 購入反映（Idempotency-Key付き）**
+
+                  Stripe決済で Pack を購入する例。
+                  Idempotency-Key ヘッダーにより、ネットワーク障害時の再送でも
+                  重複課金を防止します。
+                value:
+                  pack_id: pack_550e8400-e29b-41d4-a716-446655440000
+                  payment_method: stripe
+                  receipt_data: pi_3NkVz2Abc123XYZ_secret_abc123xyz
+              apple_purchase:
+                summary: Apple In-App Purchase
+                value:
+                  pack_id: pack_550e8400-e29b-41d4-a716-446655440000
+                  payment_method: apple
+                  receipt_data: MIITtgYJKoZIhvc...（Base64エンコードされたレシート）
+              google_purchase:
+                summary: Google Play Billing
+                value:
+                  pack_id: pack_550e8400-e29b-41d4-a716-446655440000
+                  payment_method: google
+                  receipt_data: '{"orderId":"GPA.1234-5678-9012","packageName":"app.aiwill","productId":"pack_001"}'
+      responses:
+        '201':
+          description: 購入成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseResponse'
+              examples:
+                purchase_completed:
+                  summary: 購入完了（Stripe）
+                  description: |
+                    **Example 2: 購入成功レスポンス**
+
+                    購入が正常に完了し、利用権（Entitlement）が付与された状態。
+                    以降、このPackのキャラクターと会話が可能になります。
+                  value:
+                    purchase:
+                      id: purchase_550e8400-e29b-41d4-a716-446655440000
+                      pack_id: pack_550e8400-e29b-41d4-a716-446655440000
+                      amount: 500
+                      currency: JPY
+                      payment_method: stripe
+                      status: completed
+                      created_at: '2026-01-31T12:00:00Z'
+                    entitlement:
+                      id: ent_550e8400-e29b-41d4-a716-446655440000
+                      entitlement_type: pack
+                      entitlement_id: pack_550e8400-e29b-41d4-a716-446655440000
+                      granted_at: '2026-01-31T12:00:00Z'
+                      revoked_at: null
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: 購入済みまたは処理中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                already_purchased:
+                  summary: 購入済み
+                  value:
+                    error:
+                      code: already_purchased
+                      message: このPackは既に購入済みです
+                      details: []
+                request_in_progress:
+                  summary: 処理中（冪等性キー重複）
+                  value:
+                    error:
+                      code: request_in_progress
+                      message: 同一の冪等性キーでリクエストが処理中です
+                      details: []
+
+  /purchases:restore:
+    post:
+      tags: [Purchase]
+      summary: 購入復元
+      description: |
+        ストアの購入状態を復元します。
+
+        **冪等性:** `Idempotency-Key`ヘッダー必須
+      operationId: restorePurchases
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestorePurchaseRequest'
+      responses:
+        '200':
+          description: 復元成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestorePurchaseResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /entitlements:
+    get:
+      tags: [Purchase]
+      summary: 利用権一覧取得
+      description: ユーザーが保持する利用権の一覧を取得します。
+      operationId: listEntitlements
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ----------------------------------------------------------
+  # Memory (Clips)
+  # ----------------------------------------------------------
+  /clips:
+    get:
+      tags: [Memory]
+      summary: クリップ一覧取得
+      description: ユーザーの保存したクリップ（メモリー）一覧を取得します。
+      operationId: listClips
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: thread_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: スレッド絞り込み
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClipListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      tags: [Memory]
+      summary: クリップ作成
+      description: |
+        メッセージを切り抜いてクリップとして保存します。
+
+        ## 用途
+        - 思い出に残したい会話をブックマーク
+        - 後から振り返りたいシーンを保存
+        - タグで整理して検索可能に
+
+        ## 注意事項
+        - クリップは作成後に編集不可（title/tags の変更不可）
+        - 同一メッセージから複数のクリップを作成可能
+        - source_message_id は自分が所有するスレッドのメッセージのみ指定可能
+      operationId: createClip
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClipRequest'
+            examples:
+              date_promise:
+                summary: デートの約束を保存
+                description: |
+                  **Example 3: クリップ作成**
+
+                  キャラクターとの思い出の会話を切り抜いて保存する例。
+                  タイトルとタグを付けて、後から検索しやすくします。
+                value:
+                  source_message_id: msg_550e8400-e29b-41d4-a716-446655440002
+                  title: 初めてのデートの約束
+                  tags:
+                    - デート
+                    - 思い出
+                    - 水族館
+              confession:
+                summary: 告白シーンを保存
+                value:
+                  source_message_id: msg_550e8400-e29b-41d4-a716-446655440099
+                  title: あかりの告白
+                  tags:
+                    - 告白
+                    - 感動
+                    - 大切な思い出
+              no_tags:
+                summary: タグなしで保存
+                value:
+                  source_message_id: msg_550e8400-e29b-41d4-a716-446655440050
+      responses:
+        '201':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClipResponse'
+              examples:
+                clip_with_tags:
+                  summary: タグ付きクリップ作成成功
+                  description: |
+                    **Example 3: クリップ作成成功レスポンス**
+
+                    メッセージから切り抜いたクリップが保存され、
+                    キャラクター情報と共に返却されます。
+                  value:
+                    clip:
+                      id: clip_550e8400-e29b-41d4-a716-446655440000
+                      title: 初めてのデートの約束
+                      content: えっと…水族館とか行ってみたいな！イルカのショー見たことある？
+                      character:
+                        id: char_550e8400-e29b-41d4-a716-446655440001
+                        name: 桜井 あかり
+                        avatar_url: https://cdn.aiwill.app/characters/char_001/avatar.jpg
+                      source_message_id: msg_550e8400-e29b-41d4-a716-446655440002
+                      tags:
+                        - デート
+                        - 思い出
+                        - 水族館
+                      created_at: '2026-01-31T14:00:05Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /clips/{clip_id}:
+    get:
+      tags: [Memory]
+      summary: クリップ詳細取得
+      description: 指定したクリップの詳細を取得します。
+      operationId: getClip
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/clipId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClipResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    # PATCH /clips/{clip_id} は削除（v1.1.0）
+    # 理由: memory_clips テーブルは updated_at を持たず、作成後の編集は不可とする設計判断
+    delete:
+      tags: [Memory]
+      summary: クリップ削除
+      description: 指定したクリップを削除します。
+      operationId: deleteClip
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/clipId'
+      responses:
+        '204':
+          description: 削除成功
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ----------------------------------------------------------
+  # Safety
+  # ----------------------------------------------------------
+  /report-reasons:
+    get:
+      tags: [Safety]
+      summary: 通報理由一覧取得
+      description: 通報時に選択できる理由の一覧を取得します。
+      operationId: listReportReasons
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReasonListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /reports:
+    post:
+      tags: [Safety]
+      summary: 通報
+      description: コンテンツやユーザーを通報します。
+      operationId: createReport
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: 通報受付
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: 重複通報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /blocks:
+    get:
+      tags: [Safety]
+      summary: ブロック一覧取得
+      description: ユーザーがブロックしている対象の一覧を取得します。
+      operationId: listBlocks
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      tags: [Safety]
+      summary: ブロック
+      description: コンテンツやクリエイターをブロックします。
+      operationId: createBlock
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBlockRequest'
+      responses:
+        '201':
+          description: ブロック成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /blocks/{block_id}:
+    delete:
+      tags: [Safety]
+      summary: ブロック解除
+      description: 指定したブロックを解除します。
+      operationId: deleteBlock
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/blockId'
+      responses:
+        '204':
+          description: 解除成功
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ----------------------------------------------------------
+  # Privacy
+  # ----------------------------------------------------------
+  /privacy/export:
+    post:
+      tags: [Privacy]
+      summary: データエクスポートジョブ作成
+      description: |
+        ユーザーデータのエクスポートジョブを作成します。
+
+        **冪等性:** `Idempotency-Key`ヘッダー必須
+      operationId: createExportJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExportJobRequest'
+      responses:
+        '202':
+          description: ジョブ作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportJobResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: ジョブ進行中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /privacy/export/{job_id}:
+    get:
+      tags: [Privacy]
+      summary: エクスポートジョブ状態確認
+      description: エクスポートジョブの状態を確認します。
+      operationId: getExportJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/jobId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportJobResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /privacy/delete:
+    post:
+      tags: [Privacy]
+      summary: データ削除ジョブ作成
+      description: |
+        ユーザーデータの削除ジョブを作成します。
+
+        **冪等性:** `Idempotency-Key`ヘッダー必須
+      operationId: createDeleteJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeleteJobRequest'
+      responses:
+        '202':
+          description: ジョブ作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteJobResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: ジョブ進行中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /privacy/delete/{job_id}:
+    get:
+      tags: [Privacy]
+      summary: 削除ジョブ状態確認
+      description: 削除ジョブの状態を確認します。
+      operationId: getDeleteJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/jobId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteJobResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /privacy/delete/{job_id}/cancel:
+    post:
+      tags: [Privacy]
+      summary: 削除ジョブキャンセル
+      description: 猶予期間内の削除ジョブをキャンセルします。
+      operationId: cancelDeleteJob
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/jobId'
+      responses:
+        '200':
+          description: キャンセル成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteJobResponse'
+        '400':
+          description: キャンセル不可
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+# ============================================================
+# Components
+# ============================================================
+components:
+  # ----------------------------------------------------------
+  # Security Schemes
+  # ----------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer Token
+
+  # ----------------------------------------------------------
+  # Parameters
+  # ----------------------------------------------------------
+  parameters:
+    packId:
+      name: pack_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Pack ID
+
+    threadId:
+      name: thread_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Thread ID
+
+    clipId:
+      name: clip_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Clip ID
+
+    blockId:
+      name: block_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Block ID
+
+    jobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Job ID
+
+    cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: ページングカーソル
+
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: 取得件数
+
+    sort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        default: created_at
+      description: ソートキー
+
+    order:
+      name: order
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+      description: 昇順/降順
+
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 冪等性キー（UUID）
+
+  # ----------------------------------------------------------
+  # Responses
+  # ----------------------------------------------------------
+  responses:
+    ValidationError:
+      description: バリデーションエラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: validation_error
+              message: リクエストの検証に失敗しました
+              details:
+                - field: email
+                  code: invalid_format
+                  message: 有効なメールアドレス形式で入力してください
+
+    UnauthorizedError:
+      description: 認証エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: unauthenticated
+              message: 認証が必要です
+              details: []
+
+    ForbiddenError:
+      description: 権限エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: forbidden
+              message: この操作を実行する権限がありません
+              details: []
+
+    AgeRestrictedError:
+      description: 年齢制限エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: age_restricted
+              message: このコンテンツは年齢制限があります
+              details: []
+
+    EntitlementRequiredError:
+      description: 購入が必要
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: entitlement_required
+              message: このコンテンツを利用するには購入が必要です
+              details: []
+
+    NotFoundError:
+      description: リソースが見つからない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: not_found
+              message: リソースが見つかりません
+              details: []
+
+    ConflictError:
+      description: 競合エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: conflict
+              message: リソースが既に存在します
+              details: []
+
+    ServiceUnavailableError:
+      description: サービス利用不可
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: service_unavailable
+              message: サービスが一時的に利用できません
+              details: []
+
+  # ----------------------------------------------------------
+  # Schemas
+  # ----------------------------------------------------------
+  schemas:
+    # Common
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: エラーコード
+            message:
+              type: string
+              description: エラーメッセージ
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  code:
+                    type: string
+                  message:
+                    type: string
+
+    Pagination:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+          description: 次ページのカーソル
+        has_more:
+          type: boolean
+          description: 次ページの有無
+
+    # Auth
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    LogoutRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+
+    Tokens:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+          description: 有効期限（秒）
+
+    TokenResponse:
+      type: object
+      properties:
+        tokens:
+          $ref: '#/components/schemas/Tokens'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+          nullable: true
+        consent_at:
+          type: string
+          format: date-time
+          nullable: true
+        age_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        age_group:
+          type: string
+          enum: [u13, u18, adult]
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Onboarding:
+      type: object
+      properties:
+        consent_completed:
+          type: boolean
+        age_verified:
+          type: boolean
+        completed:
+          type: boolean
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        tokens:
+          $ref: '#/components/schemas/Tokens'
+
+    UserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
+    MeResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        onboarding:
+          $ref: '#/components/schemas/Onboarding'
+
+    UpdateMeRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 50
+
+    ConsentRequest:
+      type: object
+      required: [terms_version, privacy_version]
+      properties:
+        terms_version:
+          type: string
+        privacy_version:
+          type: string
+
+    ConsentResponse:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            consent_at:
+              type: string
+              format: date-time
+        onboarding:
+          $ref: '#/components/schemas/Onboarding'
+
+    AgeVerifyRequest:
+      type: object
+      properties:
+        birth_date:
+          type: string
+          format: date
+          description: 生年月日（YYYY-MM-DD）
+        age_group:
+          type: string
+          enum: [u13, u18, adult]
+          description: 年齢区分（birth_dateの代替）
+
+    Restrictions:
+      type: object
+      properties:
+        adult_content:
+          type: boolean
+        purchase_limit:
+          type: integer
+          nullable: true
+          description: 課金上限（円/月）
+
+    AgeVerifyResponse:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            age_verified_at:
+              type: string
+              format: date-time
+            age_group:
+              type: string
+        onboarding:
+          $ref: '#/components/schemas/Onboarding'
+        restrictions:
+          $ref: '#/components/schemas/Restrictions'
+
+    # Catalog
+    Tag:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        count:
+          type: integer
+
+    Creator:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+
+    PackStats:
+      type: object
+      properties:
+        favorite_count:
+          type: integer
+        conversation_count:
+          type: integer
+        review_count:
+          type: integer
+        average_rating:
+          type: number
+          format: float
+
+    Pack:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pack_type:
+          type: string
+          enum: [persona, scenario]
+        name:
+          type: string
+        description:
+          type: string
+        thumbnail_url:
+          type: string
+          format: uri
+        cover_url:
+          type: string
+          format: uri
+          nullable: true
+        sample_voice_url:
+          type: string
+          format: uri
+          nullable: true
+        price:
+          type: integer
+          description: 価格（円）
+        is_free:
+          type: boolean
+        age_rating:
+          type: string
+          enum: [all, r15, r18]
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        creator:
+          $ref: '#/components/schemas/Creator'
+        stats:
+          $ref: '#/components/schemas/PackStats'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserStatus:
+      type: object
+      properties:
+        owned:
+          type: boolean
+        favorited:
+          type: boolean
+
+    PackListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pack'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    PackDetailResponse:
+      type: object
+      properties:
+        pack:
+          $ref: '#/components/schemas/Pack'
+        user_status:
+          $ref: '#/components/schemas/UserStatus'
+
+    PackItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        item_type:
+          type: string
+          enum: [character, event, voice_pack]
+        item_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+
+    PackItemsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackItem'
+
+    TagListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+
+    # Conversation
+    Character:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, character]
+        content:
+          type: string
+        content_type:
+          type: string
+          enum: [text, audio]
+        created_at:
+          type: string
+          format: date-time
+
+    Thread:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        pack_id:
+          type: string
+          format: uuid
+        character:
+          $ref: '#/components/schemas/Character'
+        session_type:
+          type: string
+          enum: [free, event]
+        event_id:
+          type: string
+          format: uuid
+          nullable: true
+        message_count:
+          type: integer
+        last_message:
+          $ref: '#/components/schemas/Message'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RelationshipStage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        code:
+          type: string
+
+    Relationship:
+      type: object
+      properties:
+        affection:
+          type: integer
+        stage:
+          $ref: '#/components/schemas/RelationshipStage'
+
+    CreateThreadRequest:
+      type: object
+      required: [pack_id, character_id]
+      properties:
+        pack_id:
+          type: string
+          format: uuid
+        character_id:
+          type: string
+          format: uuid
+        session_type:
+          type: string
+          enum: [free, event]
+          default: free
+        event_id:
+          type: string
+          format: uuid
+
+    ThreadResponse:
+      type: object
+      properties:
+        thread:
+          $ref: '#/components/schemas/Thread'
+
+    ThreadDetailResponse:
+      type: object
+      properties:
+        thread:
+          $ref: '#/components/schemas/Thread'
+        relationship:
+          $ref: '#/components/schemas/Relationship'
+
+    ThreadListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Thread'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # NOTE: DeleteThreadsResponse は MVP から削除（DELETE /threads 廃止に伴い）
+
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          maxLength: 2000
+        content_type:
+          type: string
+          enum: [text, audio]
+          default: text
+
+    SendMessageResponse:
+      type: object
+      properties:
+        user_message:
+          $ref: '#/components/schemas/Message'
+        assistant_message:
+          $ref: '#/components/schemas/Message'
+
+    # ----------------------------------------------------------
+    # SSE (Server-Sent Events) Schemas
+    # ----------------------------------------------------------
+    SSEStream:
+      type: string
+      description: |
+        SSE ストリーム形式のレスポンス。
+        各イベントは `event:` と `data:` 行で構成されます。
+
+    SSEMessageStart:
+      type: object
+      description: ストリーム開始イベントのペイロード
+      required: [user_message_id, assistant_message_id]
+      properties:
+        user_message_id:
+          type: string
+          description: ユーザーメッセージID
+          example: msg_550e8400-e29b-41d4-a716-446655440001
+        assistant_message_id:
+          type: string
+          description: アシスタント（キャラクター）メッセージID
+          example: msg_550e8400-e29b-41d4-a716-446655440002
+
+    SSEContentDelta:
+      type: object
+      description: テキスト差分イベントのペイロード
+      required: [delta]
+      properties:
+        delta:
+          type: string
+          description: テキスト差分（逐次送信される部分文字列）
+          example: こんな日は
+
+    SSEAudioDelta:
+      type: object
+      description: 音声差分イベントのペイロード（音声モード時）
+      required: [delta]
+      properties:
+        delta:
+          type: string
+          format: byte
+          description: 音声データ差分（Base64エンコード）
+          example: UklGRiQAAABXQVZFZm10IBAAAA...
+
+    SSEMessageDone:
+      type: object
+      description: ストリーム完了イベントのペイロード
+      required: [assistant_message_id, finish_reason]
+      properties:
+        assistant_message_id:
+          type: string
+          description: アシスタントメッセージID
+          example: msg_550e8400-e29b-41d4-a716-446655440002
+        finish_reason:
+          type: string
+          enum: [stop, length, content_filter]
+          description: |
+            終了理由:
+            - `stop`: 正常完了
+            - `length`: トークン上限到達
+            - `content_filter`: コンテンツフィルタで停止
+          example: stop
+        usage:
+          type: object
+          description: トークン使用量（オプション）
+          properties:
+            prompt_tokens:
+              type: integer
+              description: プロンプトトークン数
+              example: 150
+            completion_tokens:
+              type: integer
+              description: 生成トークン数
+              example: 25
+
+    SSEError:
+      type: object
+      description: エラーイベントのペイロード
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: エラーコード
+          enum: [request_timeout, rate_limit_exceeded, service_unavailable, internal_error]
+          example: request_timeout
+        message:
+          type: string
+          description: エラーメッセージ
+          example: 応答がタイムアウトしました。再度お試しください。
+
+    MessageListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Purchase
+    CreatePurchaseRequest:
+      type: object
+      required: [pack_id, payment_method]
+      properties:
+        pack_id:
+          type: string
+          format: uuid
+        payment_method:
+          type: string
+          enum: [stripe, apple, google]
+        receipt_data:
+          type: string
+          description: 決済プロバイダーからのレシート
+
+    Purchase:
+      type: object
+      description: 購入情報
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 購入ID
+        pack_id:
+          type: string
+          format: uuid
+          description: 購入対象のPack ID
+        amount:
+          type: integer
+          description: 購入金額
+          example: 500
+        currency:
+          type: string
+          description: 通貨コード（ISO 4217）
+          enum: [JPY, USD]
+          default: JPY
+          example: JPY
+        payment_method:
+          type: string
+          description: 決済方法
+          enum: [stripe, apple, google]
+          example: stripe
+        status:
+          type: string
+          enum: [pending, completed, failed, refunded]
+          description: |
+            購入ステータス:
+            - `pending`: 処理中
+            - `completed`: 完了
+            - `failed`: 失敗
+            - `refunded`: 返金済み
+        created_at:
+          type: string
+          format: date-time
+
+    Entitlement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        entitlement_type:
+          type: string
+          enum: [pack]
+        entitlement_id:
+          type: string
+          format: uuid
+        granted_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    PurchaseResponse:
+      type: object
+      properties:
+        purchase:
+          $ref: '#/components/schemas/Purchase'
+        entitlement:
+          $ref: '#/components/schemas/Entitlement'
+
+    RestorePurchaseRequest:
+      type: object
+      required: [payment_method]
+      properties:
+        payment_method:
+          type: string
+          enum: [stripe, apple, google]
+        receipt_data:
+          type: string
+
+    RestorePurchaseResponse:
+      type: object
+      properties:
+        restored_count:
+          type: integer
+        entitlements:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entitlement'
+
+    EntitlementListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entitlement'
+
+    # Memory (Clips)
+    Clip:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          nullable: true
+        content:
+          type: string
+        character:
+          $ref: '#/components/schemas/Character'
+        source_message_id:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateClipRequest:
+      type: object
+      required: [source_message_id]
+      properties:
+        source_message_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 100
+        tags:
+          type: array
+          items:
+            type: string
+
+    # UpdateClipRequest は削除（v1.1.0）
+    # 理由: クリップは作成後の編集不可とする設計判断
+
+    ClipResponse:
+      type: object
+      properties:
+        clip:
+          $ref: '#/components/schemas/Clip'
+
+    ClipListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Clip'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Safety
+    ReportReason:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+
+    ReportReasonListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportReason'
+
+    CreateReportRequest:
+      type: object
+      required: [target_type, target_id, reason_id]
+      properties:
+        target_type:
+          type: string
+          enum: [character, message, pack, creator]
+        target_id:
+          type: string
+          format: uuid
+        reason_id:
+          type: string
+          format: uuid
+        comment:
+          type: string
+          maxLength: 500
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        target_type:
+          type: string
+        target_id:
+          type: string
+          format: uuid
+        reason:
+          $ref: '#/components/schemas/ReportReason'
+        status:
+          type: string
+          enum: [open, in_progress, resolved, rejected]
+        created_at:
+          type: string
+          format: date-time
+
+    ReportResponse:
+      type: object
+      properties:
+        report:
+          $ref: '#/components/schemas/Report'
+        message:
+          type: string
+
+    CreateBlockRequest:
+      type: object
+      required: [target_type, target_id]
+      properties:
+        target_type:
+          type: string
+          enum: [user, creator, character, tag]
+        target_id:
+          type: string
+          format: uuid
+
+    Block:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        target_type:
+          type: string
+        target_id:
+          type: string
+          format: uuid
+        target_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    BlockResponse:
+      type: object
+      properties:
+        block:
+          $ref: '#/components/schemas/Block'
+
+    BlockListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Block'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Privacy - Jobs
+    JobStatus:
+      type: string
+      enum: [queued, processing, completed, cancelled, failed]
+
+    JobProgress:
+      type: object
+      properties:
+        total_items:
+          type: integer
+        processed_items:
+          type: integer
+        percentage:
+          type: integer
+
+    CreateExportJobRequest:
+      type: object
+      required: [scope]
+      properties:
+        scope:
+          type: string
+          enum: [conversations, memories, all]
+          description: エクスポート範囲
+
+    ExportJobResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        scope:
+          type: string
+        progress:
+          $ref: '#/components/schemas/JobProgress'
+        download_url:
+          type: string
+          format: uri
+          nullable: true
+        download_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateDeleteJobRequest:
+      type: object
+      required: [scope, confirm]
+      properties:
+        scope:
+          type: string
+          enum: [conversations, memories, all]
+          description: 削除範囲
+        confirm:
+          type: boolean
+          description: 確認フラグ（true必須）
+
+    DeleteJobResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        scope:
+          type: string
+        progress:
+          $ref: '#/components/schemas/JobProgress'
+        grace_period_until:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
