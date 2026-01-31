@@ -1,9 +1,9 @@
-# AI will エンティティ一覧（v3.1.7）
+# AI will エンティティ一覧（v3.1.8）
 
 | 項目 | 内容 |
 |------|------|
 | ドキュメント名 | AI will エンティティ一覧 |
-| バージョン | 3.1.7 |
+| バージョン | 3.1.8 |
 | 作成日 | 2026-01-31 |
 | 最終更新日 | 2026-01-31 |
 | ステータス | ドラフト |
@@ -64,7 +64,7 @@
 | エンティティ名 | テーブル名 | 種類 | 主キー | 説明 |
 |---------------|-----------|------|--------|------|
 | キャラクター | `characters` | transaction | `id` (uuid) | クリエイターが作成したキャラクターの基本情報。単体販売せず必ずPack経由で販売 |
-| キャラクター人格設定 | `character_personalities` | transaction | `id` (uuid) | キャラクターの性格・口調・世界観等の設定。MVPなら `characters` にJSON埋め込みも可 |
+| キャラクター人格設定 | `character_personalities` | transaction | `id` (uuid) | キャラクターの性格・口調・世界観等の設定。`character_id` → `characters.id`（NOT NULL, UNIQUE）で1:1。MVPなら `characters` にJSON埋め込みも可 |
 
 ### 2.3 商品/販売単位系
 
@@ -106,39 +106,39 @@
 | ユーザー×キャラ関係 | `user_character_relationships` | transaction | `id` (uuid) | ユーザーとキャラクターの好感度・関係ステージ。`stage_id` → `m_relationship_stages`。`UNIQUE (user_id, character_id)` |
 | ユーザー×キャラ×フラグ | `user_character_flags` | transaction | `id` (uuid) | ユーザー×キャラ単位の状態フラグ（告白済み等）。`flag_code` → `m_flag_definitions.flag_code`（FK）。`UNIQUE (user_id, character_id, flag_code)` |
 | ユーザー×キャラ長期記憶 | `user_character_memories` | transaction | `id` (uuid) | ユーザーの呼び方、好み、NG、会話要約等。`UNIQUE (user_id, character_id)` |
-| 切り抜きメモリー | `memory_clips` | transaction | `id` (uuid) | ユーザーが保存した会話の切り抜き。`source_message_id` で元メッセージを参照（NULL可） |
+| 切り抜きメモリー | `memory_clips` | transaction | `id` (uuid) | ユーザーが保存した会話の切り抜き。`user_id` → `users.id`（NOT NULL）、`character_id` → `characters.id`（NOT NULL）、`source_message_id` → `conversation_messages.id`（NULL可） |
 
 ### 2.8 音声系
 
 | エンティティ名 | テーブル名 | 種類 | 主キー | 説明 |
 |---------------|-----------|------|--------|------|
 | ボイスパック | `voice_packs` | transaction | `id` (uuid) | 音声素材のセット（メタ情報）。`character_id` に紐づく |
-| 音声アセット | `voice_assets` | transaction | `id` (uuid) | 個別の音声ファイル実体。`voice_category_id` → `m_voice_categories` |
+| 音声アセット | `voice_assets` | transaction | `id` (uuid) | 個別の音声ファイル実体。`voice_pack_id` → `voice_packs.id`（NOT NULL）、`voice_category_id` → `m_voice_categories` |
 | 権利宣誓/同意 | `rights_consents` | transaction | `id` (uuid) | 音声アップロード時の権利同意・宣誓記録。`voice_asset_id` と1:1（`UNIQUE (voice_asset_id)`） |
 
 ### 2.9 イベント系
 
 | エンティティ名 | テーブル名 | 種類 | 主キー | 説明 |
 |---------------|-----------|------|--------|------|
-| イベント | `events` | transaction | `id` (uuid) | キャラクターに紐づく特別イベントの定義（告白、記念日等） |
+| イベント | `events` | transaction | `id` (uuid) | キャラクターに紐づく特別イベントの定義（告白、記念日等）。`character_id` → `characters.id`（NOT NULL）、`event_type_id` → `m_event_types.id`（NULL可, **※暫定・要確認**） |
 | イベント解放条件 | `event_unlock_conditions` | transaction | `id` (uuid) | イベント解放に必要な条件。`condition_type`: flag/affection/event_completed。`event_id` → `events.id`（NOT NULL）、`prerequisite_event_id` → `events.id`（NULL可）、`flag_code` → `m_flag_definitions`（NULL可）。排他CHECK制約あり |
-| イベント台本ノード | `event_script_nodes` | transaction | `id` (uuid) | イベント台本のセリフ・選択肢・分岐定義。`voice_asset_id` → `voice_assets.id`（NULL可） |
-| イベント分岐選択肢 | `event_branch_options` | transaction | `id` (uuid) | 分岐ノードの選択肢と遷移先。`next_node_id` で次ノードを参照 |
+| イベント台本ノード | `event_script_nodes` | transaction | `id` (uuid) | イベント台本のセリフ・選択肢・分岐定義。`event_id` → `events.id`（NOT NULL）、`voice_asset_id` → `voice_assets.id`（NULL可） |
+| イベント分岐選択肢 | `event_branch_options` | transaction | `id` (uuid) | 分岐ノードの選択肢と遷移先。`node_id` → `event_script_nodes.id`（NOT NULL）、`next_node_id` → `event_script_nodes.id`（NULL可）で次ノードを参照 |
 | イベントクリア履歴 | `user_event_completions` | transaction | `id` (uuid) | ユーザーがクリアしたイベントの記録。`UNIQUE (user_id, event_id)` |
 
 ### 2.10 会話系
 
 | エンティティ名 | テーブル名 | 種類 | 主キー | 説明 |
 |---------------|-----------|------|--------|------|
-| 会話セッション | `conversation_sessions` | transaction | `id` (uuid) | ユーザーとキャラクターの会話単位。`session_type`: free/event。`event_id`（NULL可）でイベント会話を紐付け |
-| 会話メッセージ | `conversation_messages` | transaction | `id` (uuid) | 会話内の個別発話・応答ログ。`role`: user/character |
+| 会話セッション | `conversation_sessions` | transaction | `id` (uuid) | ユーザーとキャラクターの会話単位。`user_id` → `users.id`（NOT NULL）、`character_id` → `characters.id`（NOT NULL）、`session_type`: free/event、`event_id` → `events.id`（NULL可）でイベント会話を紐付け |
+| 会話メッセージ | `conversation_messages` | transaction | `id` (uuid) | 会話内の個別発話・応答ログ。`session_id` → `conversation_sessions.id`（NOT NULL）、`role`: user/character |
 
 ### 2.11 通報/モデレーション/安全系
 
 | エンティティ名 | テーブル名 | 種類 | 主キー | 説明 |
 |---------------|-----------|------|--------|------|
-| 通報 | `reports` | transaction | `id` (uuid) | ユーザーからの通報内容。**ポリモーフィック参照**（`target_type` + `target_id`）。`status`: open/in_progress/resolved/rejected |
-| モデレーション対応 | `moderation_actions` | transaction | `id` (uuid) | 運営による対応記録（公開停止等）。`action_type`: suspend/restore/warn/ban |
+| 通報 | `reports` | transaction | `id` (uuid) | ユーザーからの通報内容。`reporter_user_id` → `users.id`（NULL可、退会時SET NULL）、`reason_id` → `m_report_reasons.id`（NOT NULL）、**ポリモーフィック参照**（`target_type` + `target_id`）。`status`: open/in_progress/resolved/rejected |
+| モデレーション対応 | `moderation_actions` | transaction | `id` (uuid) | 運営による対応記録（公開停止等）。`report_id` → `reports.id`（NULL可、通報起因でない場合あり）、`admin_user_id` → `admin_users.id`（NOT NULL）、`action_type`: suspend/restore/warn/ban |
 | 異議申し立て | `appeals` | transaction | `id` (uuid) | クリエイターからの異議申し立て。`UNIQUE (moderation_action_id)` で0..1関係を担保 |
 | ブロック | `user_blocks` | transaction | `id` (uuid) | ユーザーによるブロック設定。**ポリモーフィック参照**（`target_type` + `target_id`）。`UNIQUE (user_id, target_type, target_id) WHERE deleted_at IS NULL` |
 
@@ -185,6 +185,7 @@
 | テーブル名 | UNIQUE制約 | 目的 |
 |-----------|-----------|------|
 | `creators` | `(user_id)` | 1ユーザー=0..1クリエイター |
+| `character_personalities` | `(character_id)` | 1キャラ=1人格設定（1:1） |
 | `purchases` | `(payment_provider, payment_id)` | 決済の冪等性 |
 | `user_entitlements` | `(user_id, entitlement_type, entitlement_id) WHERE revoked_at IS NULL` | 有効な利用権の重複防止 |
 | `user_ticket_balances` | `(user_id)` | 1ユーザー1残高 |
@@ -209,6 +210,7 @@
 | バージョン | 日付 | 変更内容 | 担当者 |
 |------------|------|----------|--------|
 | 3.1.7 | 2026-01-31 | 初版作成（v3.1.7時点のエンティティを反映） | - |
+| 3.1.8 | 2026-01-31 | 重要FK列を明示: voice_assets.voice_pack_id, event_script_nodes.event_id, event_branch_options.node_id, memory_clips.user_id/character_id, conversation_sessions.user_id/character_id, conversation_messages.session_id, reports.reporter_user_id/reason_id, moderation_actions.report_id/admin_user_id, character_personalities.character_id(UNIQUE), events.character_id/event_type_id(暫定) | - |
 
 ---
 
