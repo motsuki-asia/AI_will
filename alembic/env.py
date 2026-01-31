@@ -12,7 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Import Base and all models for autogenerate support
 from app.db.base import Base
-from app.models import User, RefreshToken  # noqa: F401
+from app.models import (  # noqa: F401
+    User, RefreshToken, Creator, Pack, Character, PackItem,
+    ConversationSession, ConversationMessage, ReportReason, Report,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

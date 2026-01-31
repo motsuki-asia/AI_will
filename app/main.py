@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.routers import (
     auth_router,
@@ -20,6 +21,7 @@ from app.api.v1.routers import (
     purchase_router,
     safety_router,
 )
+from app.api.v1.routers.image import router as image_router
 from app.api.v1.routers.auth import me_router
 from app.api.v1.routers.catalog import tags_router
 from app.core.config import settings
@@ -51,7 +53,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     from app.db.database import engine
     from app.db.base import Base
     # Import models to register them with Base
-    from app.models import User, RefreshToken  # noqa: F401
+    from app.models import (  # noqa: F401
+        User, RefreshToken, Creator, Pack, Character, PackItem,
+        ConversationSession, ConversationMessage, ReportReason, Report,
+    )
 
     # Startup
     print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
@@ -99,15 +104,14 @@ def create_app() -> FastAPI:
     # Middleware
     # -------------------------------------------------------------------------
 
-    # CORS
-    if settings.CORS_ORIGINS:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=[str(origin) for origin in settings.CORS_ORIGINS],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+    # CORS - Allow all origins in development
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if settings.DEBUG else [str(origin) for origin in settings.CORS_ORIGINS],
+        allow_credentials=False if settings.DEBUG else True,  # credentials can't be used with wildcard
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # TODO: Add rate limiting middleware
     # TODO: Add request logging middleware
@@ -139,6 +143,17 @@ def create_app() -> FastAPI:
 
     # Privacy
     app.include_router(privacy_router, prefix=api_prefix)
+
+    # Image Generation
+    app.include_router(image_router, prefix=api_prefix)
+
+    # -------------------------------------------------------------------------
+    # Static Files (for generated images)
+    # -------------------------------------------------------------------------
+    import os
+    static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+    os.makedirs(static_dir, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     # -------------------------------------------------------------------------
     # Health Check

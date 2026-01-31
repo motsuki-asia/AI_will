@@ -2,12 +2,15 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import String, DateTime, Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.creator import Creator
 
 
 class AgeGroup(str, Enum):
@@ -63,6 +66,9 @@ class User(Base, TimestampMixin):
         String(10),
         nullable=True,
     )
+
+    # Relationships
+    creator: Mapped[Optional["Creator"]] = relationship("Creator", back_populates="user", uselist=False)
 
     @property
     def consent_completed(self) -> bool:

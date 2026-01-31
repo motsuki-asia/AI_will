@@ -1,21 +1,35 @@
 """Conversation router - matching openapi.yaml Conversation paths"""
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import NotFoundException, ForbiddenException
+from app.db.database import get_db
 from app.deps import OnboardedUser, Pagination, Sort
 from app.schemas.conversation import (
     CreateThreadRequest,
+    Message,
     MessageListResponse,
+    Relationship,
+    RelationshipStage,
     SendMessageRequest,
     SendMessageResponse,
+    Thread,
     ThreadDetailResponse,
     ThreadListResponse,
     ThreadResponse,
 )
+from app.schemas.common import Character as CharacterSchema, Pagination as PaginationSchema
+from app.services.conversation import ConversationService
 
 router = APIRouter(prefix="/threads", tags=["Conversation"])
+
+
+def get_conversation_service(db: AsyncSession = Depends(get_db)) -> ConversationService:
+    """Dependency to get ConversationService"""
+    return ConversationService(db)
 
 
 # =============================================================================
@@ -35,17 +49,28 @@ async def list_threads(
     pagination: Pagination,
     sort: Sort,
     character_id: Optional[str] = Query(None, description="キャラクター絞り込み"),
+    conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> ThreadListResponse:
     """
     スレッド一覧取得
 
-    TODO: Implement list_threads
-    - Fetch threads for current user (WHERE deleted_at IS NULL)
+    - Fetch threads for current user
     - Filter by character_id if specified
     - Join with character info
-    - Get last_message using LATERAL JOIN
     """
-    raise NotImplementedError("TODO: Implement list_threads")
+    sessions, page_info = await conversation_service.list_threads(
+        user_id=user_state.user_id,
+        character_id=character_id,
+        cursor=pagination.cursor,
+        limit=pagination.limit,
+    )
+
+    threads = [_session_to_thread(s) for s in sessions]
+
+    return ThreadListResponse(
+        data=threads,
+        pagination=page_info,
+    )
 
 
 # =============================================================================
@@ -67,16 +92,28 @@ async def list_threads(
 async def create_thread(
     user_state: OnboardedUser,
     request: CreateThreadRequest,
+    conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> ThreadResponse:
     """
     スレッド作成
 
-    TODO: Implement create_thread
-    - Check entitlement (owned or free pack)
-    - Check age restriction
+    - Check entitlement (MVP: all free)
     - Create conversation_session
     """
-    raise NotImplementedError("TODO: Implement create_thread")
+    session = await conversation_service.create_thread(
+        user_id=user_state.user_id,
+        pack_id=request.pack_id,
+        character_id=request.character_id,
+    )
+
+    if not session:
+        raise NotFoundException("キャラクターが見つかりません")
+
+    # Update pack_id on session
+    session.pack_id = request.pack_id
+    await conversation_service.db.flush()
+
+    return ThreadResponse(thread=_session_to_thread(session))
 
 
 # NOTE: DELETE /threads（一括削除）は MVP から削除。
@@ -101,15 +138,26 @@ async def create_thread(
 async def get_thread(
     thread_id: str,
     user_state: OnboardedUser,
+    conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> ThreadDetailResponse:
     """
     スレッド詳細取得
 
-    TODO: Implement get_thread
     - Fetch thread (verify ownership)
     - Get relationship info
     """
-    raise NotImplementedError("TODO: Implement get_thread")
+    session = await conversation_service.get_thread(thread_id, user_state.user_id)
+
+    if not session:
+        raise NotFoundException("スレッドが見つかりません")
+
+    return ThreadDetailResponse(
+        thread=_session_to_thread(session),
+        relationship=Relationship(
+            affection=0,
+            stage=RelationshipStage(id="initial", name="初対面", code="initial"),
+        ),
+    )
 
 
 # =============================================================================
@@ -129,15 +177,18 @@ async def get_thread(
 async def delete_thread(
     thread_id: str,
     user_state: OnboardedUser,
+    conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> None:
     """
     スレッド削除
 
-    TODO: Implement delete_thread
     - Verify ownership
-    - Soft delete thread and messages
+    - Soft delete thread
     """
-    raise NotImplementedError("TODO: Implement delete_thread")
+    deleted = await conversation_service.delete_thread(thread_id, user_state.user_id)
+
+    if not deleted:
+        raise NotFoundException("スレッドが見つかりません")
 
 
 # =============================================================================
@@ -159,15 +210,31 @@ async def list_messages(
     user_state: OnboardedUser,
     pagination: Pagination,
     order: str = Query("desc", description="asc（古い順）/ desc（新しい順）"),
+    conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> MessageListResponse:
     """
     メッセージ履歴取得
 
-    TODO: Implement list_messages
     - Verify thread ownership
     - Fetch messages with pagination
     """
-    raise NotImplementedError("TODO: Implement list_messages")
+    result = await conversation_service.list_messages(
+        thread_id=thread_id,
+        user_id=user_state.user_id,
+        cursor=pagination.cursor,
+        limit=pagination.limit,
+        order=order,
+    )
+
+    if result is None:
+        raise NotFoundException("スレッドが見つかりません")
+
+    messages, page_info = result
+
+    return MessageListResponse(
+        data=[_message_to_schema(m) for m in messages],
+        pagination=page_info,
+    )
 
 
 # =============================================================================
@@ -191,18 +258,31 @@ async def send_message(
     thread_id: str,
     user_state: OnboardedUser,
     request: SendMessageRequest,
+    conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> SendMessageResponse:
     """
     メッセージ送信
 
-    TODO: Implement send_message
     - Verify thread ownership
     - Save user message
-    - Call LLM API
+    - Call LLM API (or stub)
     - Save assistant message
-    - Update relationship (affection)
     """
-    raise NotImplementedError("TODO: Implement send_message")
+    result = await conversation_service.send_message(
+        thread_id=thread_id,
+        user_id=user_state.user_id,
+        content=request.content,
+    )
+
+    if result is None:
+        raise NotFoundException("スレッドが見つかりません")
+
+    user_msg, ai_msg = result
+
+    return SendMessageResponse(
+        user_message=_message_to_schema(user_msg),
+        assistant_message=_message_to_schema(ai_msg),
+    )
 
 
 # =============================================================================
@@ -249,4 +329,115 @@ async def send_message_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+# =============================================================================
+# GET /threads/{thread_id}/messages/{message_id}/audio - メッセージ音声取得
+# =============================================================================
+@router.get(
+    "/{thread_id}/messages/{message_id}/audio",
+    summary="メッセージ音声取得",
+    description="メッセージを音声で取得します（TTS）。",
+    responses={
+        401: {"description": "認証エラー"},
+        403: {"description": "他ユーザーのスレッド"},
+        404: {"description": "メッセージ not found"},
+        503: {"description": "TTS未設定"},
+    },
+)
+async def get_message_audio(
+    thread_id: str,
+    message_id: str,
+    user_state: OnboardedUser,
+    voice: str = Query("nova", description="音声の種類（nova, shimmer, alloy, echo, fable, onyx）"),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """
+    メッセージ音声取得
+
+    - Verify thread ownership
+    - Get message content
+    - Convert to speech using TTS API
+    """
+    from sqlalchemy import select
+    from app.models import ConversationSession, ConversationMessage
+    from app.services.tts import TTSService
+    import io
+    
+    # Verify thread ownership
+    result = await db.execute(
+        select(ConversationSession)
+        .where(ConversationSession.id == thread_id)
+        .where(ConversationSession.user_id == user_state.user_id)
+        .where(ConversationSession.deleted_at.is_(None))
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise NotFoundException("スレッドが見つかりません")
+    
+    # Get message
+    result = await db.execute(
+        select(ConversationMessage)
+        .where(ConversationMessage.id == message_id)
+        .where(ConversationMessage.session_id == thread_id)
+    )
+    message = result.scalar_one_or_none()
+    if not message:
+        raise NotFoundException("メッセージが見つかりません")
+    
+    # Generate audio
+    tts_service = TTSService()
+    audio_bytes = await tts_service.synthesize(
+        text=message.content,
+        voice=voice,
+    )
+    
+    if not audio_bytes:
+        from app.core.errors import ServiceUnavailableException
+        raise ServiceUnavailableException("音声合成サービスが利用できません。LLM_API_KEYを設定してください。")
+    
+    return StreamingResponse(
+        io.BytesIO(audio_bytes),
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": f'inline; filename="message_{message_id}.mp3"',
+        },
+    )
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def _session_to_thread(session) -> Thread:
+    """Convert ConversationSession model to Thread schema"""
+    from app.models import ConversationSession
+
+    return Thread(
+        id=session.id,
+        pack_id=session.pack_id or "",
+        character=CharacterSchema(
+            id=session.character.id,
+            name=session.character.name,
+            avatar_url=session.character.image_url,
+        ),
+        session_type=session.session_type,
+        event_id=None,
+        message_count=0,
+        last_message=None,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+    )
+
+
+def _message_to_schema(message) -> Message:
+    """Convert ConversationMessage model to Message schema"""
+    return Message(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        content_type="text",
+        created_at=message.created_at,
     )

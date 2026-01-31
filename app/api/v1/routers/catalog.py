@@ -1,18 +1,29 @@
 """Catalog router - matching openapi.yaml Catalog paths"""
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import NotFoundException
+from app.db.database import get_db
 from app.deps import OnboardedUser, Pagination, Sort
 from app.schemas.catalog import (
     PackDetailResponse,
     PackItemsResponse,
     PackListResponse,
     TagListResponse,
+    UserStatus,
 )
+from app.schemas.common import Pagination as PaginationSchema, Tag
+from app.services.catalog import CatalogService
 
 router = APIRouter(prefix="/packs", tags=["Catalog"])
 tags_router = APIRouter(prefix="/tags", tags=["Catalog"])
+
+
+def get_catalog_service(db: AsyncSession = Depends(get_db)) -> CatalogService:
+    """Dependency to get CatalogService"""
+    return CatalogService(db)
 
 
 # =============================================================================
@@ -37,17 +48,29 @@ async def list_packs(
     query: Optional[str] = Query(None, description="キーワード検索"),
     tags: Optional[str] = Query(None, description="タグ絞り込み（カンマ区切り）"),
     age_rating: Optional[Literal["all", "r15", "r18"]] = Query(None, description="年齢レーティング"),
+    catalog_service: CatalogService = Depends(get_catalog_service),
 ) -> PackListResponse:
     """
     Pack一覧取得
 
-    TODO: Implement list_packs
     - Apply age_rating filter based on user's age_group
-    - Filter by type, query, tags
-    - Apply sorting and pagination
-    - Join with tags, creator info
+    - Filter by type, query
+    - Apply pagination
+    - Join with creator info
     """
-    raise NotImplementedError("TODO: Implement list_packs")
+    packs, page_info = await catalog_service.list_packs(
+        user_id=user_state.user_id,
+        user_age_group=user_state.age_group,
+        pack_type=type,
+        query=query,
+        cursor=pagination.cursor,
+        limit=pagination.limit,
+    )
+
+    return PackListResponse(
+        data=packs,
+        pagination=page_info,
+    )
 
 
 # =============================================================================
@@ -67,16 +90,29 @@ async def list_packs(
 async def get_pack(
     pack_id: str,
     user_state: OnboardedUser,
+    catalog_service: CatalogService = Depends(get_catalog_service),
 ) -> PackDetailResponse:
     """
     Pack詳細取得
 
-    TODO: Implement get_pack
     - Fetch pack from database
     - Check age restriction
     - Get user's ownership and favorite status
     """
-    raise NotImplementedError("TODO: Implement get_pack")
+    result = await catalog_service.get_pack(
+        pack_id=pack_id,
+        user_id=user_state.user_id,
+        user_age_group=user_state.age_group,
+    )
+
+    if not result:
+        raise NotFoundException("Packが見つかりません")
+
+    pack, user_status = result
+    return PackDetailResponse(
+        pack=pack,
+        user_status=user_status,
+    )
 
 
 # =============================================================================
@@ -95,14 +131,22 @@ async def get_pack(
 async def get_pack_items(
     pack_id: str,
     user_state: OnboardedUser,
+    catalog_service: CatalogService = Depends(get_catalog_service),
 ) -> PackItemsResponse:
     """
     Pack構成アイテム取得
 
-    TODO: Implement get_pack_items
     - Fetch pack items (characters, events, etc.)
     """
-    raise NotImplementedError("TODO: Implement get_pack_items")
+    items = await catalog_service.get_pack_items(
+        pack_id=pack_id,
+        user_id=user_state.user_id,
+    )
+
+    if items is None:
+        raise NotFoundException("Packが見つかりません")
+
+    return PackItemsResponse(data=items)
 
 
 # =============================================================================
@@ -124,8 +168,7 @@ async def list_tags(
     """
     タグ一覧取得
 
-    TODO: Implement list_tags
-    - Fetch tags with counts
-    - Filter by type if specified
+    MVP: Returns empty list (tags not implemented yet)
     """
-    raise NotImplementedError("TODO: Implement list_tags")
+    # MVP: No tags implemented yet
+    return TagListResponse(data=[])

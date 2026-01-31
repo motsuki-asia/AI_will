@@ -1,8 +1,13 @@
 """Safety router - matching openapi.yaml Safety paths"""
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import NotFoundException, ValidationException
+from app.db.database import get_db
 from app.deps import OnboardedUser, Pagination
+from app.schemas.common import Pagination as PaginationSchema
 from app.schemas.safety import (
+    Block,
     BlockListResponse,
     BlockResponse,
     CreateBlockRequest,
@@ -10,8 +15,14 @@ from app.schemas.safety import (
     ReportReasonListResponse,
     ReportResponse,
 )
+from app.services.safety import SafetyService
 
 router = APIRouter(tags=["Safety"])
+
+
+def get_safety_service(db: AsyncSession = Depends(get_db)) -> SafetyService:
+    """Dependency to get SafetyService"""
+    return SafetyService(db)
 
 
 # =============================================================================
@@ -28,14 +39,18 @@ router = APIRouter(tags=["Safety"])
 )
 async def list_report_reasons(
     user_state: OnboardedUser,
+    safety_service: SafetyService = Depends(get_safety_service),
 ) -> ReportReasonListResponse:
     """
     通報理由一覧取得
 
-    TODO: Implement list_report_reasons
     - Fetch from m_report_reasons table
     """
-    raise NotImplementedError("TODO: Implement list_report_reasons")
+    reasons = await safety_service.list_report_reasons()
+
+    return ReportReasonListResponse(
+        data=[safety_service.reason_to_schema(r) for r in reasons]
+    )
 
 
 # =============================================================================
@@ -57,16 +72,32 @@ async def list_report_reasons(
 async def create_report(
     user_state: OnboardedUser,
     request: CreateReportRequest,
+    safety_service: SafetyService = Depends(get_safety_service),
 ) -> ReportResponse:
     """
     通報
 
-    TODO: Implement create_report
-    - Verify target exists
-    - Check for duplicate report (within 24 hours)
+    - Verify target exists (MVP: skip)
     - Create report record
     """
-    raise NotImplementedError("TODO: Implement create_report")
+    report = await safety_service.create_report(
+        user_id=user_state.user_id,
+        target_type=request.target_type,
+        target_id=request.target_id,
+        reason_id=request.reason_id,
+        detail=request.comment,
+    )
+
+    if not report:
+        raise ValidationException(
+            message="通報理由が見つかりません",
+            details=[{"field": "reason_id", "code": "not_found", "message": "無効な通報理由IDです"}],
+        )
+
+    return ReportResponse(
+        report=safety_service.report_to_schema(report),
+        message="通報を受け付けました。ご報告ありがとうございます。",
+    )
 
 
 # =============================================================================
@@ -88,10 +119,12 @@ async def list_blocks(
     """
     ブロック一覧取得
 
-    TODO: Implement list_blocks
-    - Fetch user's blocks (WHERE deleted_at IS NULL)
+    MVP: Returns empty list (blocks not implemented yet)
     """
-    raise NotImplementedError("TODO: Implement list_blocks")
+    return BlockListResponse(
+        data=[],
+        pagination=PaginationSchema(next_cursor=None, has_more=False),
+    )
 
 
 # =============================================================================
@@ -107,6 +140,7 @@ async def list_blocks(
         400: {"description": "バリデーションエラー"},
         401: {"description": "認証エラー"},
         409: {"description": "既にブロック済み"},
+        501: {"description": "未実装"},
     },
 )
 async def create_block(
@@ -116,11 +150,13 @@ async def create_block(
     """
     ブロック
 
-    TODO: Implement create_block
-    - Check if already blocked
-    - Create block record
+    Phase 2: Not implemented in MVP
     """
-    raise NotImplementedError("TODO: Implement create_block")
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="ブロック機能はPhase 2で実装予定です",
+    )
 
 
 # =============================================================================
@@ -134,6 +170,7 @@ async def create_block(
     responses={
         401: {"description": "認証エラー"},
         404: {"description": "ブロック not found"},
+        501: {"description": "未実装"},
     },
 )
 async def delete_block(
@@ -143,8 +180,10 @@ async def delete_block(
     """
     ブロック解除
 
-    TODO: Implement delete_block
-    - Verify ownership
-    - Soft delete block
+    Phase 2: Not implemented in MVP
     """
-    raise NotImplementedError("TODO: Implement delete_block")
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="ブロック機能はPhase 2で実装予定です",
+    )

@@ -275,6 +275,10 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle unexpected exceptions"""
     # Log the exception here in production
+    import traceback
+    print(f"Unhandled exception: {exc}")
+    traceback.print_exc()
+    
     return create_error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code=ErrorCode.INTERNAL_ERROR,

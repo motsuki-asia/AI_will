@@ -1,15 +1,27 @@
 """Privacy router - matching openapi.yaml Privacy paths"""
-from fastapi import APIRouter, status
+from datetime import datetime, timezone
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import ValidationException
+from app.db.database import get_db
 from app.deps import IdempotencyKey, OnboardedUser
 from app.schemas.privacy import (
     CreateDeleteJobRequest,
     CreateExportJobRequest,
     DeleteJobResponse,
     ExportJobResponse,
+    JobProgress,
 )
+from app.services.privacy import PrivacyService
 
 router = APIRouter(prefix="/privacy", tags=["Privacy"])
+
+
+def get_privacy_service(db: AsyncSession = Depends(get_db)) -> PrivacyService:
+    """Dependency to get PrivacyService"""
+    return PrivacyService(db)
 
 
 # =============================================================================
@@ -25,6 +37,7 @@ router = APIRouter(prefix="/privacy", tags=["Privacy"])
         400: {"description": "バリデーションエラー"},
         401: {"description": "認証エラー"},
         409: {"description": "ジョブ進行中"},
+        501: {"description": "未実装"},
     },
 )
 async def create_export_job(
@@ -35,13 +48,12 @@ async def create_export_job(
     """
     データエクスポートジョブ作成
 
-    TODO: Implement create_export_job
-    - Check idempotency
-    - Check for existing job in progress
-    - Create export job
-    - Queue background task
+    Phase 3: Not implemented in MVP
     """
-    raise NotImplementedError("TODO: Implement create_export_job")
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="エクスポート機能はPhase 3で実装予定です",
+    )
 
 
 # =============================================================================
@@ -55,6 +67,7 @@ async def create_export_job(
     responses={
         401: {"description": "認証エラー"},
         404: {"description": "ジョブ not found"},
+        501: {"description": "未実装"},
     },
 )
 async def get_export_job(
@@ -64,11 +77,12 @@ async def get_export_job(
     """
     エクスポートジョブ状態確認
 
-    TODO: Implement get_export_job
-    - Fetch job (verify ownership)
-    - Return current status and progress
+    Phase 3: Not implemented in MVP
     """
-    raise NotImplementedError("TODO: Implement get_export_job")
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="エクスポート機能はPhase 3で実装予定です",
+    )
 
 
 # =============================================================================
@@ -90,18 +104,36 @@ async def create_delete_job(
     user_state: OnboardedUser,
     idempotency_key: IdempotencyKey,
     request: CreateDeleteJobRequest,
+    privacy_service: PrivacyService = Depends(get_privacy_service),
 ) -> DeleteJobResponse:
     """
     データ削除ジョブ作成
 
-    TODO: Implement create_delete_job
+    MVP: Synchronous deletion (no grace period)
     - Require confirm=true
-    - Check idempotency
-    - Check for existing job in progress
-    - Create delete job with grace period
-    - Queue background task (after grace period)
+    - Delete conversations immediately
     """
-    raise NotImplementedError("TODO: Implement create_delete_job")
+    if not request.confirm:
+        raise ValidationException(
+            message="削除を確認してください",
+            details=[{"field": "confirm", "code": "required", "message": "confirm: trueを指定してください"}],
+        )
+
+    job_info = await privacy_service.create_delete_job(
+        user_id=user_state.user_id,
+        scope=request.scope,
+    )
+
+    return DeleteJobResponse(
+        job_id=job_info["job_id"],
+        status=job_info["status"],
+        scope=job_info["scope"],
+        progress=JobProgress(**job_info["progress"]) if job_info["progress"] else None,
+        grace_period_until=job_info["grace_period_until"],
+        created_at=job_info["created_at"],
+        completed_at=job_info["completed_at"],
+        cancelled_at=job_info["cancelled_at"],
+    )
 
 
 # =============================================================================
@@ -124,11 +156,11 @@ async def get_delete_job(
     """
     削除ジョブ状態確認
 
-    TODO: Implement get_delete_job
-    - Fetch job (verify ownership)
-    - Return current status and progress
+    MVP: Jobs are synchronous, so this always returns not found
+    (job status is not persisted)
     """
-    raise NotImplementedError("TODO: Implement get_delete_job")
+    from app.core.errors import NotFoundException
+    raise NotFoundException("ジョブが見つかりません（MVPでは即時完了のためジョブ状態は保存されません）")
 
 
 # =============================================================================
@@ -152,9 +184,7 @@ async def cancel_delete_job(
     """
     削除ジョブキャンセル
 
-    TODO: Implement cancel_delete_job
-    - Verify ownership
-    - Check if within grace period
-    - Cancel job
+    MVP: Jobs are synchronous with no grace period, so cancel is not available
     """
-    raise NotImplementedError("TODO: Implement cancel_delete_job")
+    from app.core.errors import NotFoundException
+    raise NotFoundException("ジョブが見つかりません（MVPでは即時削除のためキャンセルできません）")

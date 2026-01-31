@@ -1,11 +1,12 @@
 """Auth router - matching openapi.yaml Auth paths"""
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import NotFoundException
+from app.core.errors import ConflictException, ErrorCode, ForbiddenException, NotFoundException
 from app.db.database import get_db
 from app.deps import CurrentUserId
 from app.schemas.auth import (
@@ -20,6 +21,7 @@ from app.schemas.auth import (
     Onboarding,
     RefreshRequest,
     RegisterRequest,
+    Restrictions,
     TokenResponse,
     Tokens,
     UpdateMeRequest,
@@ -232,16 +234,34 @@ async def update_me(
 async def consent(
     user_id: CurrentUserId,
     request: ConsentRequest,
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> ConsentResponse:
     """
     利用規約同意
 
-    TODO: Implement consent (Phase 2)
     - Validate version numbers
     - Record consent in database
     - Update user consent_at
     """
-    raise NotImplementedError("TODO: Implement consent (Phase 2)")
+    user = await auth_service.get_user_by_id(user_id)
+    if not user:
+        raise NotFoundException("ユーザーが見つかりません")
+
+    # Check if already consented
+    if user.consent_at is not None:
+        raise ConflictException(
+            message="既に同意済みです",
+            code=ErrorCode.CONFLICT,
+        )
+
+    # Update consent timestamp
+    user.consent_at = datetime.now(timezone.utc)
+    await auth_service.db.flush()
+
+    return ConsentResponse(
+        user=User.from_model(user),
+        onboarding=Onboarding.from_user(user),
+    )
 
 
 # =============================================================================
@@ -262,14 +282,77 @@ async def consent(
 async def age_verify(
     user_id: CurrentUserId,
     request: AgeVerifyRequest,
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> AgeVerifyResponse:
     """
     年齢確認
 
-    TODO: Implement age_verify (Phase 2)
     - Require consent completed
     - Calculate age_group from birth_date or use provided age_group
     - Set restrictions based on age
-    - Log audit event
     """
-    raise NotImplementedError("TODO: Implement age_verify (Phase 2)")
+    user = await auth_service.get_user_by_id(user_id)
+    if not user:
+        raise NotFoundException("ユーザーが見つかりません")
+
+    # Check consent
+    if not user.consent_completed:
+        raise ForbiddenException(
+            message="利用規約への同意が必要です",
+            code=ErrorCode.CONSENT_REQUIRED,
+        )
+
+    # Check if already verified
+    if user.age_verified_at is not None:
+        raise ConflictException(
+            message="既に年齢確認済みです",
+            code=ErrorCode.CONFLICT,
+        )
+
+    # Determine age_group
+    age_group = request.age_group
+    if request.birth_date and not age_group:
+        # Calculate age from birth_date
+        from datetime import date
+        try:
+            birth = date.fromisoformat(request.birth_date)
+            today = date.today()
+            age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+            if age < 13:
+                age_group = "u13"
+            elif age < 18:
+                age_group = "u18"
+            else:
+                age_group = "adult"
+        except ValueError:
+            from app.core.errors import ValidationException
+            raise ValidationException(
+                message="生年月日の形式が不正です",
+                details=[{"field": "birth_date", "code": "invalid_format", "message": "YYYY-MM-DD形式で入力してください"}],
+            )
+
+    if not age_group:
+        from app.core.errors import ValidationException
+        raise ValidationException(
+            message="年齢情報が必要です",
+            details=[{"field": "age_group", "code": "required", "message": "birth_dateまたはage_groupを指定してください"}],
+        )
+
+    # Update user
+    user.age_verified_at = datetime.now(timezone.utc)
+    user.age_group = age_group
+    await auth_service.db.flush()
+
+    # Determine restrictions based on age_group
+    if age_group == "u13":
+        restrictions = Restrictions(adult_content=False, purchase_limit=0)
+    elif age_group == "u18":
+        restrictions = Restrictions(adult_content=False, purchase_limit=5000)
+    else:
+        restrictions = Restrictions(adult_content=True, purchase_limit=None)
+
+    return AgeVerifyResponse(
+        user=User.from_model(user),
+        onboarding=Onboarding.from_user(user),
+        restrictions=restrictions,
+    )

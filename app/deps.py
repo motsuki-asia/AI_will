@@ -3,6 +3,8 @@ from typing import Annotated, Optional
 
 from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
     ErrorCode,
@@ -11,6 +13,7 @@ from app.core.errors import (
     ValidationException,
 )
 from app.core.security import verify_access_token
+from app.db.database import get_db
 
 # =============================================================================
 # Security Dependencies
@@ -98,25 +101,39 @@ class UserState:
         return self.consent_completed and self.age_verified
 
 
-async def get_current_user_state(user_id: CurrentUserId) -> UserState:
+async def get_current_user_state(
+    user_id: CurrentUserId,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserState:
     """
     Get current user state from database
 
-    TODO: Implement actual database lookup
-
     Args:
         user_id: Current user ID
+        db: Database session
 
     Returns:
         UserState object
+
+    Raises:
+        UnauthenticatedException: If user not found
     """
-    # TODO: Fetch from database
-    # For now, return a placeholder that passes all checks
+    from app.models.user import User
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise UnauthenticatedException(
+            message="ユーザーが見つかりません",
+            code=ErrorCode.UNAUTHENTICATED,
+        )
+
     return UserState(
         user_id=user_id,
-        consent_completed=True,
-        age_verified=True,
-        age_group="adult",
+        consent_completed=user.consent_completed,
+        age_verified=user.age_verified,
+        age_group=user.age_group,
     )
 
 
