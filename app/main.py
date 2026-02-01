@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1.routers import (
     auth_router,
     catalog_router,
+    characters_router,
     conversation_router,
     memory_router,
     privacy_router,
@@ -127,6 +128,7 @@ def create_app() -> FastAPI:
 
     # Catalog
     app.include_router(catalog_router, prefix=api_prefix)
+    app.include_router(characters_router, prefix=api_prefix)
     app.include_router(tags_router, prefix=api_prefix)
 
     # Conversation

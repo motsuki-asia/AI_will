@@ -69,7 +69,7 @@ class Thread(BaseModel):
 class CreateThreadRequest(BaseModel):
     """Create thread request"""
 
-    pack_id: str = Field(..., description="対象 Pack ID")
+    pack_id: Optional[str] = Field(None, description="対象 Pack ID（カスタムキャラクターの場合は省略可）")
     character_id: str = Field(..., description="対象キャラクター ID")
     session_type: Literal["free", "event"] = Field("free", description="セッション種別")
     event_id: Optional[str] = Field(None, description="イベント会話の場合のイベント ID")

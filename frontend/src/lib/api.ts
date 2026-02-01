@@ -208,6 +208,20 @@ export async function getPackItems(packId: string) {
   return response.json();
 }
 
+export async function getCharacters(params?: { query?: string }) {
+  const searchParams = new URLSearchParams();
+  if (params?.query) searchParams.set('query', params.query);
+
+  const queryString = searchParams.toString();
+  const response = await fetchWithAuth(`/characters${queryString ? `?${queryString}` : ''}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to get characters');
+  }
+
+  return response.json();
+}
+
 // =============================================================================
 // Conversation API
 // =============================================================================
@@ -222,10 +236,15 @@ export async function getThreads() {
   return response.json();
 }
 
-export async function createThread(packId: string, characterId: string) {
+export async function createThread(packId: string | null, characterId: string) {
+  const body: { pack_id?: string; character_id: string } = { character_id: characterId };
+  if (packId) {
+    body.pack_id = packId;
+  }
+
   const response = await fetchWithAuth('/threads', {
     method: 'POST',
-    body: JSON.stringify({ pack_id: packId, character_id: characterId }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {

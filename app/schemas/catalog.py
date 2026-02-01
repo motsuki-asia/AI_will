@@ -93,3 +93,27 @@ class TagListResponse(BaseModel):
     """Tag list response"""
 
     data: List[Tag]
+
+
+# =============================================================================
+# Character Models (for direct character listing)
+# =============================================================================
+
+
+class CharacterListItem(BaseModel):
+    """Character item for listing"""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    avatar_url: Optional[str] = None
+    pack_id: Optional[str] = None
+    pack_name: Optional[str] = None
+    is_custom: bool = False  # True if user-created character
+
+
+class CharacterListResponse(BaseModel):
+    """Character list response"""
+
+    data: List[CharacterListItem]
+    pagination: Pagination

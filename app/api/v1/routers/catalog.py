@@ -13,11 +13,13 @@ from app.schemas.catalog import (
     PackListResponse,
     TagListResponse,
     UserStatus,
+    CharacterListResponse,
 )
 from app.schemas.common import Pagination as PaginationSchema, Tag
 from app.services.catalog import CatalogService
 
 router = APIRouter(prefix="/packs", tags=["Catalog"])
+characters_router = APIRouter(prefix="/characters", tags=["Catalog"])
 tags_router = APIRouter(prefix="/tags", tags=["Catalog"])
 
 
@@ -147,6 +149,46 @@ async def get_pack_items(
         raise NotFoundException("Packが見つかりません")
 
     return PackItemsResponse(data=items)
+
+
+# =============================================================================
+# GET /characters - キャラクター一覧取得
+# =============================================================================
+@characters_router.get(
+    "",
+    response_model=CharacterListResponse,
+    summary="キャラクター一覧取得",
+    description="公開中のキャラクター一覧を取得します。",
+    responses={
+        401: {"description": "認証エラー"},
+        403: {"description": "オンボーディング未完了"},
+    },
+)
+async def list_characters(
+    user_state: OnboardedUser,
+    pagination: Pagination,
+    query: Optional[str] = Query(None, description="キーワード検索"),
+    catalog_service: CatalogService = Depends(get_catalog_service),
+) -> CharacterListResponse:
+    """
+    キャラクター一覧取得
+
+    - List all characters from published packs
+    - Apply age_rating filter based on user's age_group
+    - Apply pagination
+    """
+    characters, page_info = await catalog_service.list_characters(
+        user_id=user_state.user_id,
+        user_age_group=user_state.age_group,
+        query=query,
+        cursor=pagination.cursor,
+        limit=pagination.limit,
+    )
+
+    return CharacterListResponse(
+        data=characters,
+        pagination=page_info,
+    )
 
 
 # =============================================================================
