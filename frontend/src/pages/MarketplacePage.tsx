@@ -143,7 +143,7 @@ export function MarketplacePage() {
                       ? `http://localhost:8000${pack.thumbnail_url}` 
                       : pack.thumbnail_url}
                     alt={pack.name}
-                    className="w-32 h-32 object-cover rounded-lg"
+                    className="w-full h-full object-cover"
                   />
                   <div className="absolute top-2 right-2">
                     {pack.pack_type === 'persona' ? (

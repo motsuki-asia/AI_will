@@ -198,6 +198,7 @@ class CatalogService:
                         item_id=item.item_id,
                         name=character.name,
                         description=character.description,
+                        avatar_url=character.image_url,
                     ))
             else:
                 # For non-character items, just return basic info

@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import * as api from '@/lib/api';
 import { ArrowLeft, Send, MoreVertical, Volume2, VolumeX, Loader2 } from 'lucide-react';
@@ -24,7 +23,7 @@ interface Thread {
 }
 
 // キャラクター画像URLを取得する関数
-const getCharacterImageUrl = (avatarUrl: string | null, name: string): string => {
+const getCharacterImageUrl = (avatarUrl: string | null): string => {
   if (avatarUrl) {
     // サーバーの静的ファイルURLの場合はフルURLに変換
     if (avatarUrl.startsWith('/static/')) {
@@ -32,8 +31,8 @@ const getCharacterImageUrl = (avatarUrl: string | null, name: string): string =>
     }
     return avatarUrl;
   }
-  // フォールバック: DiceBearアバター
-  return `https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+  // フォールバック: プレースホルダー画像
+  return '/placeholder.png';
 };
 
 export function ConversationPage() {
@@ -185,7 +184,7 @@ export function ConversationPage() {
     );
   }
 
-  const characterImageUrl = getCharacterImageUrl(thread.character.avatar_url, thread.character.name);
+  const characterImageUrl = getCharacterImageUrl(thread.character.avatar_url);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 -my-6 relative">
@@ -204,7 +203,7 @@ export function ConversationPage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <img
-          src={getCharacterImageUrl(thread.character.avatar_url, thread.character.name)}
+          src={getCharacterImageUrl(thread.character.avatar_url)}
           alt={thread.character.name}
           className="h-10 w-10 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100"
         />
@@ -234,7 +233,7 @@ export function ConversationPage() {
               >
                 {message.role === 'character' && (
                   <img
-                    src={getCharacterImageUrl(thread.character.avatar_url, thread.character.name)}
+                    src={getCharacterImageUrl(thread.character.avatar_url)}
                     alt={thread.character.name}
                     className="h-8 w-8 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100 flex-shrink-0"
                   />
@@ -276,7 +275,7 @@ export function ConversationPage() {
           {isSending && (
             <div className="flex gap-3">
               <img
-                src={getCharacterImageUrl(thread.character.avatar_url, thread.character.name)}
+                src={getCharacterImageUrl(thread.character.avatar_url)}
                 alt={thread.character.name}
                 className="h-8 w-8 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100 flex-shrink-0"
               />

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import * as api from '@/lib/api';
 import { MessageCircle } from 'lucide-react';
 
@@ -111,9 +110,9 @@ export function ConversationsPage() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <img
-                      src={`https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(thread.character.name)}&backgroundColor=b6e3f4,c0aede,d1d4f9`}
+                      src={thread.character.avatar_url ? (thread.character.avatar_url.startsWith('/static/') ? `http://localhost:8000${thread.character.avatar_url}` : thread.character.avatar_url) : '/placeholder.png'}
                       alt={thread.character.name}
-                      className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-100 to-pink-100"
+                      className="h-10 w-10 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100"
                     />
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold truncate">

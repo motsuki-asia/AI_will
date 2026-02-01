@@ -61,6 +61,7 @@ class PackItem(BaseModel):
     item_id: str
     name: str
     description: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 # =============================================================================

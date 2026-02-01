@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import * as api from '@/lib/api';
-import { ArrowLeft, MessageCircle, Sparkles, Users } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Sparkles } from 'lucide-react';
 
 interface Pack {
   id: string;
@@ -25,6 +24,7 @@ interface PackItem {
   item_id: string;
   name: string;
   description: string | null;
+  avatar_url: string | null;
 }
 
 export function PackDetailPage() {
@@ -98,11 +98,17 @@ export function PackDetailPage() {
       {/* Pack Header */}
       <div className="text-center">
         <div className="aspect-video max-w-sm mx-auto mb-4 bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded-xl flex items-center justify-center overflow-hidden">
-          <img
-            src={`https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(pack.name)}&backgroundColor=b6e3f4,c0aede,d1d4f9&size=200`}
-            alt={pack.name}
-            className="w-40 h-40 object-cover"
-          />
+          {items.filter((item) => item.item_type === 'character')[0]?.avatar_url ? (
+            <img
+              src={items.filter((item) => item.item_type === 'character')[0].avatar_url!.startsWith('/static/') ? `http://localhost:8000${items.filter((item) => item.item_type === 'character')[0].avatar_url}` : items.filter((item) => item.item_type === 'character')[0].avatar_url!}
+              alt={pack.name}
+              className="w-40 h-40 object-cover"
+            />
+          ) : (
+            <div className="w-40 h-40 flex items-center justify-center text-gray-400">
+              <Sparkles className="h-16 w-16" />
+            </div>
+          )}
         </div>
         <span
           className={`inline-block text-xs px-3 py-1 rounded-full mb-2 ${
@@ -129,9 +135,9 @@ export function PackDetailPage() {
             <CardContent className="p-4">
               <div className="flex items-start gap-4">
                 <img
-                  src={`https://api.dicebear.com/7.x/lorelei/svg?seed=${encodeURIComponent(character.name)}&backgroundColor=b6e3f4,c0aede,d1d4f9`}
+                  src={character.avatar_url ? (character.avatar_url.startsWith('/static/') ? `http://localhost:8000${character.avatar_url}` : character.avatar_url) : '/placeholder.png'}
                   alt={character.name}
-                  className="h-16 w-16 rounded-full bg-gradient-to-br from-purple-100 to-pink-100"
+                  className="h-16 w-16 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100"
                 />
                 <div className="flex-1">
                   <h3 className="font-semibold text-lg">{character.name}</h3>
