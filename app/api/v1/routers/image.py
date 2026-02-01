@@ -43,7 +43,8 @@ class CreatePartnerRequest(BaseModel):
     """Request to create a custom partner"""
     name: str = Field(..., min_length=1, max_length=20, description="パートナー名")
     description: Optional[str] = Field(None, max_length=200, description="性格・特徴")
-    image_url: str = Field(..., description="画像URL")
+    image_url: str = Field(..., description="顔アップ画像URL（アイコン・背景用）")
+    full_body_image_url: Optional[str] = Field(None, description="立ち絵画像URL")
     voice_id: Literal["nova", "shimmer", "alloy", "echo", "fable", "onyx"] = Field(
         "nova", description="声の種類"
     )
@@ -55,12 +56,14 @@ class PartnerResponse(BaseModel):
     thread_id: str
     name: str
     image_url: str
+    full_body_image_url: Optional[str]
     voice_id: str
 
 
 class GenerateImageResponse(BaseModel):
-    """Response with generated image URL"""
-    image_url: str
+    """Response with generated image URLs"""
+    face_image_url: str
+    full_body_image_url: str
     style: str
 
 
@@ -78,7 +81,7 @@ class StylesResponse(BaseModel):
     "/generate",
     response_model=GenerateImageResponse,
     summary="キャラクター画像生成",
-    description="DALL-E 3を使用してキャラクター画像を生成します。",
+    description="DALL-E 3を使用して顔アップと立ち絵の2種類の画像を生成します。",
     responses={
         401: {"description": "認証エラー"},
         503: {"description": "画像生成サービス利用不可"},
@@ -88,23 +91,24 @@ async def generate_image(
     request: GenerateImageRequest,
     user_state: OnboardedUser,
 ) -> GenerateImageResponse:
-    """Generate a character image using DALL-E 3"""
+    """Generate character images (face close-up and full body) using DALL-E 3"""
     
     service = ImageService()
     
-    image_url = await service.generate_character_image(
+    images = await service.generate_character_images(
         name=request.name,
         description=request.description,
         style=request.style,
     )
     
-    if not image_url:
+    if not images["face_image_url"] or not images["full_body_image_url"]:
         raise ServiceUnavailableException(
             "画像生成サービスが利用できません。LLM_API_KEYを確認してください。"
         )
     
     return GenerateImageResponse(
-        image_url=image_url,
+        face_image_url=images["face_image_url"],
+        full_body_image_url=images["full_body_image_url"],
         style=request.style,
     )
 
@@ -201,6 +205,7 @@ async def create_partner(
         description=request.description,
         system_prompt=system_prompt,
         image_url=request.image_url,
+        full_body_image_url=request.full_body_image_url,
         voice_id=request.voice_id,
         status=Character.STATUS_PUBLISHED,
     )
@@ -221,5 +226,6 @@ async def create_partner(
         thread_id=session.id,
         name=character.name,
         image_url=character.image_url or "",
+        full_body_image_url=character.full_body_image_url,
         voice_id=character.voice_id,
     )

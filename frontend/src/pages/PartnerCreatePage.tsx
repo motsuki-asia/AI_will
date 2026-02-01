@@ -33,8 +33,10 @@ export function PartnerCreatePage() {
   const [partnerDescription, setPartnerDescription] = useState('');
   const [selectedStyle, setSelectedStyle] = useState<ImageStyle>('anime');
   const [selectedVoice, setSelectedVoice] = useState<VoiceId>('nova');
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
-  const [serverImageUrl, setServerImageUrl] = useState<string | null>(null);
+  const [faceImageUrl, setFaceImageUrl] = useState<string | null>(null);
+  const [fullBodyImageUrl, setFullBodyImageUrl] = useState<string | null>(null);
+  const [serverFaceImageUrl, setServerFaceImageUrl] = useState<string | null>(null);
+  const [serverFullBodyImageUrl, setServerFullBodyImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playingVoice, setPlayingVoice] = useState<VoiceId | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -56,8 +58,10 @@ export function PartnerCreatePage() {
       });
       
       // バックエンドのURLを使用
-      setGeneratedImageUrl(`http://localhost:8000${result.image_url}`);
-      setServerImageUrl(result.image_url);
+      setFaceImageUrl(`http://localhost:8002${result.face_image_url}`);
+      setFullBodyImageUrl(`http://localhost:8002${result.full_body_image_url}`);
+      setServerFaceImageUrl(result.face_image_url);
+      setServerFullBodyImageUrl(result.full_body_image_url);
     } catch (err) {
       console.error('Image generation error:', err);
       setError(err instanceof Error ? err.message : '画像生成に失敗しました');
@@ -67,13 +71,15 @@ export function PartnerCreatePage() {
   };
 
   const handleRegenerate = () => {
-    setGeneratedImageUrl(null);
-    setServerImageUrl(null);
+    setFaceImageUrl(null);
+    setFullBodyImageUrl(null);
+    setServerFaceImageUrl(null);
+    setServerFullBodyImageUrl(null);
     handleGenerateImage();
   };
 
   const handleRegisterPartner = async () => {
-    if (!partnerName.trim() || !serverImageUrl) {
+    if (!partnerName.trim() || !serverFaceImageUrl) {
       setError('名前と画像が必要です');
       return;
     }
@@ -85,7 +91,8 @@ export function PartnerCreatePage() {
       const result = await api.createPartner({
         name: partnerName.trim(),
         description: partnerDescription.trim() || undefined,
-        image_url: serverImageUrl,
+        image_url: serverFaceImageUrl,
+        full_body_image_url: serverFullBodyImageUrl || undefined,
         voice_id: selectedVoice,
       });
 
@@ -244,31 +251,65 @@ export function PartnerCreatePage() {
             </div>
           )}
 
-          {generatedImageUrl && (
+          {(faceImageUrl || fullBodyImageUrl) && (
             <div className="space-y-4">
-              <label className="block text-sm font-medium">生成された画像</label>
-              <div className="flex justify-center">
-                <div className="relative">
-                  <img
-                    src={generatedImageUrl}
-                    alt={partnerName}
-                    className="w-64 h-64 object-cover rounded-xl shadow-lg"
-                  />
-                  <button
-                    onClick={handleRegenerate}
-                    disabled={isGenerating}
-                    className="absolute -top-2 -right-2 p-2 bg-white dark:bg-gray-800 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    title="再生成"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${isGenerating ? 'animate-spin' : ''}`} />
-                  </button>
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium">生成された画像</label>
+                <button
+                  onClick={handleRegenerate}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  title="再生成"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isGenerating ? 'animate-spin' : ''}`} />
+                  再生成
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {/* 顔アップ画像 */}
+                <div className="space-y-2">
+                  <p className="text-xs text-center text-gray-500 font-medium">
+                    アイコン・背景用
+                  </p>
+                  <div className="relative">
+                    {faceImageUrl ? (
+                      <img
+                        src={faceImageUrl}
+                        alt={`${partnerName} - 顔アップ`}
+                        className="w-full aspect-square object-cover rounded-xl shadow-lg"
+                      />
+                    ) : (
+                      <div className="w-full aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* 立ち絵画像 */}
+                <div className="space-y-2">
+                  <p className="text-xs text-center text-gray-500 font-medium">
+                    立ち絵
+                  </p>
+                  <div className="relative">
+                    {fullBodyImageUrl ? (
+                      <img
+                        src={fullBodyImageUrl}
+                        alt={`${partnerName} - 立ち絵`}
+                        className="w-full aspect-square object-cover rounded-xl shadow-lg"
+                      />
+                    ) : (
+                      <div className="w-full aspect-square bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           <div className="pt-4 space-y-3">
-            {!generatedImageUrl ? (
+            {!faceImageUrl ? (
               <Button
                 className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                 size="lg"
@@ -278,7 +319,7 @@ export function PartnerCreatePage() {
                 {isGenerating ? (
                   <>
                     <Wand2 className="h-5 w-5 mr-2 animate-spin" />
-                    生成中...（30秒ほどかかります）
+                    生成中...（1分ほどかかります）
                   </>
                 ) : (
                   <>
@@ -321,7 +362,7 @@ export function PartnerCreatePage() {
           </div>
 
           <p className="text-xs text-center text-gray-500">
-            ※ 画像生成には20〜30秒かかる場合があります
+            ※ 顔アップと立ち絵の2種類を生成するため、1分ほどかかる場合があります
           </p>
         </CardContent>
       </Card>

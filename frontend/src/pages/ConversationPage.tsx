@@ -187,18 +187,18 @@ export function ConversationPage() {
   const characterImageUrl = getCharacterImageUrl(thread.character.avatar_url);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 -my-6 relative">
+    <div className="-mx-4 -my-6 relative">
       {/* Background with partner image */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div 
-          className="absolute inset-0 bg-cover bg-center opacity-10"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-10"
           style={{ backgroundImage: `url(${characterImageUrl})` }}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-purple-50/80 via-pink-50/60 to-white/90 dark:from-gray-900/90 dark:via-purple-900/30 dark:to-gray-900/95" />
       </div>
 
-      {/* Header */}
-      <div className="relative flex items-center gap-3 p-4 border-b bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
+      {/* Header - 上部固定 */}
+      <div className="fixed top-[3.5rem] left-0 right-0 z-20 flex items-center gap-3 p-4 border-b bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
@@ -215,84 +215,86 @@ export function ConversationPage() {
         </Button>
       </div>
 
-      {/* Messages */}
-      <ScrollArea ref={scrollRef} className="relative flex-1 p-4">
-        <div className="space-y-4 max-w-2xl mx-auto">
-          {messages.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <p className="mb-2">会話を始めましょう！</p>
-              <p className="text-sm">{thread.character.name}にメッセージを送ってみてください</p>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${
-                  message.role === 'user' ? 'flex-row-reverse' : ''
-                }`}
-              >
-                {message.role === 'character' && (
-                  <img
-                    src={getCharacterImageUrl(thread.character.avatar_url)}
-                    alt={thread.character.name}
-                    className="h-8 w-8 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100 flex-shrink-0"
-                  />
-                )}
+      {/* Messages - スクロール可能エリア */}
+      <div className="pt-[4.5rem] pb-[8rem]">
+        <ScrollArea ref={scrollRef} className="h-[calc(100vh-16rem)] p-4">
+          <div className="space-y-4 max-w-2xl mx-auto">
+            {messages.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <p className="mb-2">会話を始めましょう！</p>
+                <p className="text-sm">{thread.character.name}にメッセージを送ってみてください</p>
+              </div>
+            ) : (
+              messages.map((message) => (
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2 backdrop-blur-sm ${
-                    message.role === 'user'
-                      ? 'bg-purple-600/95 text-white rounded-tr-sm shadow-md'
-                      : 'bg-white/90 dark:bg-gray-800/90 rounded-tl-sm shadow-sm'
+                  key={message.id}
+                  className={`flex gap-3 ${
+                    message.role === 'user' ? 'flex-row-reverse' : ''
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
                   {message.role === 'character' && (
-                    <button
-                      onClick={() => playMessageAudio(message.id)}
-                      className="mt-1 flex items-center gap-1 text-xs text-gray-500 hover:text-purple-600 transition-colors"
-                      disabled={loadingAudioId === message.id}
-                    >
-                      {loadingAudioId === message.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : playingMessageId === message.id ? (
-                        <VolumeX className="h-3 w-3" />
-                      ) : (
-                        <Volume2 className="h-3 w-3" />
-                      )}
-                      <span>
-                        {loadingAudioId === message.id 
-                          ? '読み込み中...' 
-                          : playingMessageId === message.id 
-                            ? '停止' 
-                            : '再生'}
-                      </span>
-                    </button>
+                    <img
+                      src={getCharacterImageUrl(thread.character.avatar_url)}
+                      alt={thread.character.name}
+                      className="h-8 w-8 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100 flex-shrink-0"
+                    />
                   )}
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-2 backdrop-blur-sm ${
+                      message.role === 'user'
+                        ? 'bg-purple-600/95 text-white rounded-tr-sm shadow-md'
+                        : 'bg-white/90 dark:bg-gray-800/90 rounded-tl-sm shadow-sm'
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.role === 'character' && (
+                      <button
+                        onClick={() => playMessageAudio(message.id)}
+                        className="mt-1 flex items-center gap-1 text-xs text-gray-500 hover:text-purple-600 transition-colors"
+                        disabled={loadingAudioId === message.id}
+                      >
+                        {loadingAudioId === message.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : playingMessageId === message.id ? (
+                          <VolumeX className="h-3 w-3" />
+                        ) : (
+                          <Volume2 className="h-3 w-3" />
+                        )}
+                        <span>
+                          {loadingAudioId === message.id 
+                            ? '読み込み中...' 
+                            : playingMessageId === message.id 
+                              ? '停止' 
+                              : '再生'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+            {isSending && (
+              <div className="flex gap-3">
+                <img
+                  src={getCharacterImageUrl(thread.character.avatar_url)}
+                  alt={thread.character.name}
+                  className="h-8 w-8 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100 flex-shrink-0"
+                />
+                <div className="bg-gray-100/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl rounded-tl-sm px-4 py-3">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                  </div>
                 </div>
               </div>
-            ))
-          )}
-          {isSending && (
-            <div className="flex gap-3">
-              <img
-                src={getCharacterImageUrl(thread.character.avatar_url)}
-                alt={thread.character.name}
-                className="h-8 w-8 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100 flex-shrink-0"
-              />
-              <div className="bg-gray-100/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl rounded-tl-sm px-4 py-3">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
 
-      {/* Input */}
-      <div className="relative p-4 border-t bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
+      {/* Input - 下部固定（ナビゲーションバーの上） */}
+      <div className="fixed bottom-[4rem] left-0 right-0 z-20 p-4 border-t bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm">
         <div className="max-w-2xl mx-auto flex gap-2">
           <Input
             ref={inputRef}

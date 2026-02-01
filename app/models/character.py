@@ -59,6 +59,12 @@ class Character(Base, TimestampMixin, SoftDeleteMixin):
     image_url: Mapped[Optional[str]] = mapped_column(
         String(500),
         nullable=True,
+        comment="顔アップ画像URL（アイコン・背景用）",
+    )
+    full_body_image_url: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="立ち絵画像URL",
     )
     voice_id: Mapped[str] = mapped_column(
         String(20),

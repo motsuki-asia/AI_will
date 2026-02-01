@@ -333,7 +333,8 @@ export interface GenerateImageParams {
 }
 
 export interface GenerateImageResponse {
-  image_url: string;
+  face_image_url: string;
+  full_body_image_url: string;
   style: string;
 }
 
@@ -377,6 +378,7 @@ export interface CreatePartnerParams {
   name: string;
   description?: string;
   image_url: string;
+  full_body_image_url?: string;
   voice_id: VoiceId;
 }
 
@@ -385,6 +387,7 @@ export interface CreatePartnerResponse {
   thread_id: string;
   name: string;
   image_url: string;
+  full_body_image_url?: string;
   voice_id: string;
 }
 
