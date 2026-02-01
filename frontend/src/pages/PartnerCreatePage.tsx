@@ -37,6 +37,7 @@ export function PartnerCreatePage() {
   const [fullBodyImageUrl, setFullBodyImageUrl] = useState<string | null>(null);
   const [serverFaceImageUrl, setServerFaceImageUrl] = useState<string | null>(null);
   const [serverFullBodyImageUrl, setServerFullBodyImageUrl] = useState<string | null>(null);
+  const [appearanceDescription, setAppearanceDescription] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playingVoice, setPlayingVoice] = useState<VoiceId | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -58,10 +59,11 @@ export function PartnerCreatePage() {
       });
       
       // バックエンドのURLを使用
-      setFaceImageUrl(`http://localhost:8002${result.face_image_url}`);
-      setFullBodyImageUrl(`http://localhost:8002${result.full_body_image_url}`);
+      setFaceImageUrl(`http://localhost:8080${result.face_image_url}`);
+      setFullBodyImageUrl(`http://localhost:8080${result.full_body_image_url}`);
       setServerFaceImageUrl(result.face_image_url);
       setServerFullBodyImageUrl(result.full_body_image_url);
+      setAppearanceDescription(result.appearance_description);
     } catch (err) {
       console.error('Image generation error:', err);
       setError(err instanceof Error ? err.message : '画像生成に失敗しました');
@@ -75,6 +77,7 @@ export function PartnerCreatePage() {
     setFullBodyImageUrl(null);
     setServerFaceImageUrl(null);
     setServerFullBodyImageUrl(null);
+    setAppearanceDescription(null);
     handleGenerateImage();
   };
 
@@ -93,6 +96,7 @@ export function PartnerCreatePage() {
         description: partnerDescription.trim() || undefined,
         image_url: serverFaceImageUrl,
         full_body_image_url: serverFullBodyImageUrl || undefined,
+        appearance_description: appearanceDescription || undefined,
         voice_id: selectedVoice,
       });
 

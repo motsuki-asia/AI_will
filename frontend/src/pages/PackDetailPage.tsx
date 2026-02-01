@@ -100,7 +100,7 @@ export function PackDetailPage() {
         <div className="aspect-video max-w-sm mx-auto mb-4 bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded-xl flex items-center justify-center overflow-hidden">
           {items.filter((item) => item.item_type === 'character')[0]?.avatar_url ? (
             <img
-              src={items.filter((item) => item.item_type === 'character')[0].avatar_url!.startsWith('/static/') ? `http://localhost:8000${items.filter((item) => item.item_type === 'character')[0].avatar_url}` : items.filter((item) => item.item_type === 'character')[0].avatar_url!}
+              src={items.filter((item) => item.item_type === 'character')[0].avatar_url!.startsWith('/static/') ? `http://localhost:8080${items.filter((item) => item.item_type === 'character')[0].avatar_url}` : items.filter((item) => item.item_type === 'character')[0].avatar_url!}
               alt={pack.name}
               className="w-40 h-40 object-cover"
             />
@@ -135,7 +135,7 @@ export function PackDetailPage() {
             <CardContent className="p-4">
               <div className="flex items-start gap-4">
                 <img
-                  src={character.avatar_url ? (character.avatar_url.startsWith('/static/') ? `http://localhost:8000${character.avatar_url}` : character.avatar_url) : '/placeholder.png'}
+                  src={character.avatar_url ? (character.avatar_url.startsWith('/static/') ? `http://localhost:8080${character.avatar_url}` : character.avatar_url) : '/placeholder.png'}
                   alt={character.name}
                   className="h-16 w-16 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100"
                 />

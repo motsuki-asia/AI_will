@@ -13,6 +13,7 @@ class GeneratedImages(TypedDict):
     """Generated images result"""
     face_image_url: Optional[str]
     full_body_image_url: Optional[str]
+    appearance_description: Optional[str]
 
 
 class ImageService:
@@ -45,18 +46,27 @@ class ImageService:
             style: Art style ("anime", "realistic", "illustration")
 
         Returns:
-            Dictionary with face_image_url and full_body_image_url
+            Dictionary with face_image_url, full_body_image_url, and appearance_description
         """
         if not settings.LLM_API_KEY:
-            return {"face_image_url": None, "full_body_image_url": None}
+            return {
+                "face_image_url": None,
+                "full_body_image_url": None,
+                "appearance_description": None,
+            }
 
         try:
-            # Generate both images concurrently
+            # First, generate detailed appearance description using GPT
+            appearance_desc = await self._generate_appearance_description(
+                name, description, style
+            )
+            
+            # Generate both images concurrently using the appearance description
             face_task = self._generate_single_image(
-                self._build_face_prompt(name, description, style)
+                self._build_face_prompt(name, appearance_desc, style)
             )
             full_body_task = self._generate_single_image(
-                self._build_full_body_prompt(name, description, style)
+                self._build_full_body_prompt(name, appearance_desc, style)
             )
             
             face_url, full_body_url = await asyncio.gather(face_task, full_body_task)
@@ -64,11 +74,70 @@ class ImageService:
             return {
                 "face_image_url": face_url,
                 "full_body_image_url": full_body_url,
+                "appearance_description": appearance_desc,
             }
 
         except Exception as e:
             print(f"Image generation error: {e}")
-            return {"face_image_url": None, "full_body_image_url": None}
+            return {
+                "face_image_url": None,
+                "full_body_image_url": None,
+                "appearance_description": None,
+            }
+
+    async def _generate_appearance_description(
+        self,
+        name: str,
+        description: Optional[str],
+        style: str,
+    ) -> str:
+        """
+        Generate detailed visual appearance description using GPT.
+        This ensures character consistency across multiple image generations.
+        """
+        try:
+            import openai
+            
+            client = openai.AsyncOpenAI(api_key=settings.LLM_API_KEY)
+            
+            system_prompt = (
+                "You are a character designer. Generate a detailed visual appearance "
+                "description for an anime/illustration style character. "
+                "Focus ONLY on visual elements that can be depicted in an image.\n\n"
+                "Include:\n"
+                "- Hair: color, length, style (e.g., 'long black hair with purple highlights')\n"
+                "- Eyes: color, shape, notable features (e.g., 'large purple eyes')\n"
+                "- Face: distinctive features, expression type\n"
+                "- Clothing: detailed outfit description with colors\n"
+                "- Accessories: hats, jewelry, items they carry\n"
+                "- Body type: height impression, build\n"
+                "- Overall aesthetic: cute, cool, elegant, etc.\n\n"
+                "Output ONLY the appearance description in English, no explanations. "
+                "Be specific with colors and details. Maximum 150 words."
+            )
+            
+            user_prompt = f"Character Name: {name}\n"
+            if description:
+                user_prompt += f"Character Concept: {description}\n"
+            user_prompt += f"Art Style: {style}\n"
+            user_prompt += "\nGenerate a detailed visual appearance description:"
+            
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=250,
+                temperature=0.7,
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            print(f"Appearance description generation error: {e}")
+            # Fallback to original description if GPT fails
+            return description or f"A {style} style character named {name}"
 
     async def generate_character_image(
         self,
@@ -206,3 +275,50 @@ class ImageService:
             {"id": "realistic", "name": "リアル", "description": "写実的なスタイル"},
             {"id": "illustration", "name": "イラスト", "description": "デジタルイラスト風"},
         ]
+
+    async def generate_scene_image(self, scene_prompt: str) -> Optional[str]:
+        """
+        Generate a scene image from a description prompt.
+
+        Args:
+            scene_prompt: Scene description for DALL-E
+
+        Returns:
+            URL path to the generated image or None if failed
+        """
+        if not settings.LLM_API_KEY:
+            return None
+
+        try:
+            import openai
+            
+            client = openai.OpenAI(api_key=settings.LLM_API_KEY)
+            
+            # Add safety and quality modifiers
+            full_prompt = f"{scene_prompt} Single scene illustration, no text, no watermarks, appropriate for all ages."
+            
+            response = client.images.generate(
+                model=self.DEFAULT_MODEL,
+                prompt=full_prompt,
+                size=self.DEFAULT_SIZE,
+                quality=self.DEFAULT_QUALITY,
+                n=1,
+                response_format="b64_json",
+            )
+            
+            # Get base64 image data
+            image_data = response.data[0].b64_json
+            
+            # Save image to file
+            filename = f"scene_{uuid.uuid4()}.png"
+            filepath = self.IMAGES_DIR / filename
+            
+            with open(filepath, "wb") as f:
+                f.write(base64.b64decode(image_data))
+            
+            # Return URL path
+            return f"/static/images/characters/{filename}"
+
+        except Exception as e:
+            print(f"Scene image generation error: {e}")
+            return None

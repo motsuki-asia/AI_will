@@ -16,9 +16,11 @@ class Message(BaseModel):
     """Message object"""
 
     id: str
-    role: Literal["user", "character"]
+    role: Literal["user", "character", "system"]
     content: str
-    content_type: Literal["text", "audio"] = "text"
+    content_type: Literal["text", "image", "audio"] = "text"
+    image_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
     created_at: datetime
 
 

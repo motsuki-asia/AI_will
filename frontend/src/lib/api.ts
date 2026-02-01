@@ -265,8 +265,33 @@ export async function getThread(threadId: string) {
   return response.json();
 }
 
-export async function getMessages(threadId: string, order: 'asc' | 'desc' = 'asc') {
-  const response = await fetchWithAuth(`/threads/${threadId}/messages?order=${order}`);
+export interface MessagesResponse {
+  data: Array<{
+    id: string;
+    role: 'user' | 'character' | 'system';
+    content: string;
+    content_type: 'text' | 'image';
+    image_url?: string;
+    expires_at?: string;
+    created_at: string;
+  }>;
+  pagination: {
+    next_cursor: string | null;
+    has_more: boolean;
+  };
+}
+
+export async function getMessages(
+  threadId: string,
+  order: 'asc' | 'desc' = 'asc',
+  cursor?: string,
+  limit?: number
+): Promise<MessagesResponse> {
+  const params = new URLSearchParams({ order });
+  if (cursor) params.append('cursor', cursor);
+  if (limit) params.append('limit', limit.toString());
+  
+  const response = await fetchWithAuth(`/threads/${threadId}/messages?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error('Failed to get messages');
@@ -335,6 +360,7 @@ export interface GenerateImageParams {
 export interface GenerateImageResponse {
   face_image_url: string;
   full_body_image_url: string;
+  appearance_description: string;
   style: string;
 }
 
@@ -379,6 +405,7 @@ export interface CreatePartnerParams {
   description?: string;
   image_url: string;
   full_body_image_url?: string;
+  appearance_description?: string;
   voice_id: VoiceId;
 }
 
@@ -421,4 +448,35 @@ export async function getVoiceSample(voiceId: VoiceId): Promise<Blob> {
   }
 
   return response.blob();
+}
+
+// =============================================================================
+// Scene Image Generation
+// =============================================================================
+
+export interface SceneImageRequest {
+  message_ids: string[];
+}
+
+export interface SceneImageResponse {
+  message_id: string;
+  image_url: string;
+  expires_at: string | null;
+}
+
+export async function generateSceneImage(threadId: string, messageIds: string[]): Promise<SceneImageResponse> {
+  const response = await fetchWithAuth(`/threads/${threadId}/scene-image`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ message_ids: messageIds }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || 'Failed to generate scene image');
+  }
+
+  return response.json();
 }

@@ -110,7 +110,7 @@ export function ConversationsPage() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <img
-                      src={thread.character.avatar_url ? (thread.character.avatar_url.startsWith('/static/') ? `http://localhost:8000${thread.character.avatar_url}` : thread.character.avatar_url) : '/placeholder.png'}
+                      src={thread.character.avatar_url ? (thread.character.avatar_url.startsWith('/static/') ? `http://localhost:8080${thread.character.avatar_url}` : thread.character.avatar_url) : '/placeholder.png'}
                       alt={thread.character.name}
                       className="h-10 w-10 rounded-full object-cover bg-gradient-to-br from-purple-100 to-pink-100"
                     />

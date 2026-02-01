@@ -47,29 +47,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     Startup:
     - Create database tables (dev only, use alembic in production)
-    
+    - Clean up expired images
+
     Shutdown:
     - Close database connections
     """
-    from app.db.database import engine
+    from app.db.database import engine, AsyncSessionLocal as async_session
     from app.db.base import Base
     # Import models to register them with Base
     from app.models import (  # noqa: F401
         User, RefreshToken, Creator, Pack, Character, PackItem,
         ConversationSession, ConversationMessage, ReportReason, Report,
     )
+    from app.services.image_cleanup import run_cleanup_on_startup
 
     # Startup
     print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    
+
     # Create tables (for development - use alembic migrations in production)
     if settings.DEBUG:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         print("Database tables created (DEBUG mode)")
-    
+
+    # Clean up expired images
+    try:
+        async with async_session() as db:
+            await run_cleanup_on_startup(db)
+    except Exception as e:
+        print(f"Image cleanup error (non-fatal): {e}")
+
     yield
-    
+
     # Shutdown
     print("Shutting down...")
     await engine.dispose()

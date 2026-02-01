@@ -1,13 +1,16 @@
 """Conversation router - matching openapi.yaml Conversation paths"""
-from typing import Optional
+from typing import Optional, List as ListType
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundException, ForbiddenException
+from app.core.errors import NotFoundException, ServiceUnavailableException
 from app.db.database import get_db
 from app.deps import OnboardedUser, Pagination, Sort
+from app.models import ConversationMessage
 from app.schemas.conversation import (
     CreateThreadRequest,
     Message,
@@ -21,8 +24,10 @@ from app.schemas.conversation import (
     ThreadListResponse,
     ThreadResponse,
 )
-from app.schemas.common import Character as CharacterSchema, Pagination as PaginationSchema
+from app.schemas.common import Character as CharacterSchema
 from app.services.conversation import ConversationService
+from app.services.image import ImageService
+from app.services.scene import SceneService
 
 router = APIRouter(prefix="/threads", tags=["Conversation"])
 
@@ -407,6 +412,95 @@ async def get_message_audio(
 
 
 # =============================================================================
+# POST /threads/{thread_id}/scene-image - シーン画像生成
+# =============================================================================
+
+
+class SceneImageRequest(BaseModel):
+    """Request to generate scene image from selected messages"""
+    message_ids: ListType[str] = Field(..., min_length=1, description="選択されたメッセージIDリスト")
+
+
+@router.post(
+    "/{thread_id}/scene-image",
+    summary="シーン画像生成",
+    description="選択したメッセージの内容に基づいてシーン画像を生成します。",
+    responses={
+        401: {"description": "認証エラー"},
+        403: {"description": "他ユーザーのスレッド"},
+        404: {"description": "スレッド not found"},
+        503: {"description": "画像生成サービス利用不可"},
+    },
+)
+async def generate_scene_image(
+    thread_id: str,
+    request: SceneImageRequest,
+    user_state: OnboardedUser,
+    conversation_service: ConversationService = Depends(get_conversation_service),
+):
+    """
+    シーン画像生成
+
+    - Verify thread ownership
+    - Get selected messages
+    - Generate scene description using LLM
+    - Generate image using DALL-E
+    - Save as image message in chat
+    """
+    # Get thread and verify ownership
+    session = await conversation_service.get_thread(thread_id, user_state.user_id)
+    if not session:
+        raise NotFoundException("スレッドが見つかりません")
+
+    # Get selected messages by IDs
+    db = conversation_service.db
+    result = await db.execute(
+        select(ConversationMessage)
+        .where(ConversationMessage.id.in_(request.message_ids))
+        .where(ConversationMessage.session_id == thread_id)
+        .order_by(ConversationMessage.created_at.asc())
+    )
+    messages = list(result.scalars().all())
+
+    if not messages:
+        raise NotFoundException("選択されたメッセージが見つかりません")
+
+    # Generate scene description using LLM
+    scene_service = SceneService()
+    scene_prompt = await scene_service.generate_scene_prompt(
+        character_name=session.character.name,
+        character_description=session.character.description,
+        messages=messages,
+        appearance_description=session.character.appearance_description,
+    )
+
+    if not scene_prompt:
+        raise ServiceUnavailableException("シーン生成に失敗しました")
+
+    # Generate image
+    image_service = ImageService()
+    image_url = await image_service.generate_scene_image(scene_prompt)
+
+    if not image_url:
+        raise ServiceUnavailableException("画像生成サービスが利用できません")
+
+    # Save as image message in chat
+    image_message = ConversationMessage.create_image_message(
+        session_id=thread_id,
+        image_url=image_url,
+        content="シーン画像を生成しました",
+    )
+    db.add(image_message)
+    await db.commit()
+
+    return {
+        "message_id": image_message.id,
+        "image_url": image_url,
+        "expires_at": image_message.expires_at.isoformat() if image_message.expires_at else None,
+    }
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
@@ -438,6 +532,8 @@ def _message_to_schema(message) -> Message:
         id=message.id,
         role=message.role,
         content=message.content,
-        content_type="text",
+        content_type=message.content_type or "text",
+        image_url=message.image_url,
+        expires_at=message.expires_at,
         created_at=message.created_at,
     )

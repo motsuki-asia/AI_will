@@ -66,6 +66,11 @@ class Character(Base, TimestampMixin, SoftDeleteMixin):
         nullable=True,
         comment="立ち絵画像URL",
     )
+    appearance_description: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="キャラクターの外見詳細記述（画像生成の一貫性のため）",
+    )
     voice_id: Mapped[str] = mapped_column(
         String(20),
         default="nova",

@@ -79,7 +79,7 @@ export function MarketplacePage() {
   const getImageUrl = (avatarUrl: string | null): string => {
     if (avatarUrl) {
       if (avatarUrl.startsWith('/static/')) {
-        return `http://localhost:8000${avatarUrl}`;
+        return `http://localhost:8080${avatarUrl}`;
       }
       return avatarUrl;
     }

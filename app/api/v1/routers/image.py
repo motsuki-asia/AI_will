@@ -45,6 +45,9 @@ class CreatePartnerRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=200, description="性格・特徴")
     image_url: str = Field(..., description="顔アップ画像URL（アイコン・背景用）")
     full_body_image_url: Optional[str] = Field(None, description="立ち絵画像URL")
+    appearance_description: Optional[str] = Field(
+        None, description="外見の詳細記述（シーン画像生成の一貫性用）"
+    )
     voice_id: Literal["nova", "shimmer", "alloy", "echo", "fable", "onyx"] = Field(
         "nova", description="声の種類"
     )
@@ -64,6 +67,7 @@ class GenerateImageResponse(BaseModel):
     """Response with generated image URLs"""
     face_image_url: str
     full_body_image_url: str
+    appearance_description: str
     style: str
 
 
@@ -109,6 +113,7 @@ async def generate_image(
     return GenerateImageResponse(
         face_image_url=images["face_image_url"],
         full_body_image_url=images["full_body_image_url"],
+        appearance_description=images["appearance_description"] or "",
         style=request.style,
     )
 
@@ -206,6 +211,7 @@ async def create_partner(
         system_prompt=system_prompt,
         image_url=request.image_url,
         full_body_image_url=request.full_body_image_url,
+        appearance_description=request.appearance_description,
         voice_id=request.voice_id,
         status=Character.STATUS_PUBLISHED,
     )
